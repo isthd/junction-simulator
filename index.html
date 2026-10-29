@@ -178,7 +178,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;dis
         </div>
         <div class="row">
           <label for="drawKind">描く道路</label>
-          <select id="drawKind"><option value="main">本線（優先）</option><option value="ramp" selected>ランプ</option><option value="toll">料金所</option></select>
+          <select id="drawKind"><option value="auto" selected>おまかせ</option><option value="main">本線（優先）</option><option value="ramp">ランプ</option><option value="toll">料金所</option></select>
           <select id="drawSpeed" aria-label="描く道路の制限速度"></select>
         </div>
         <div class="row"><input type="checkbox" id="snap" checked><label for="snap">10mグリッドに吸着</label></div>
@@ -389,7 +389,7 @@ const S = {
   vehicles:[], time:0, running:true, speed:5, mult:1, truck:0.12, gapT:2.2,
   queues:{}, arrivals:{}, nextArr:{}, rateUsed:{},
   log:[], history:[], done:0, vid:1,
-  mode:'view', sel:null, drawFrom:null, mouse:null,
+  mode:'view', sel:null, drawFrom:null, mouse:null, stroke:null,
   colorMode:'dest', heat:true, labels:true,
 };
 let G = null; // 派生データ
@@ -765,7 +765,17 @@ function draw(){
     }
   }
   // 描画中のプレビュー
-  if (S.mode === 'draw' && S.drawFrom && S.mouse){
+  if (S.mode === 'draw' && S.stroke && S.stroke.length > 1){
+    ctx.strokeStyle = C.sel; ctx.lineWidth = Math.max(3, rw); ctx.globalAlpha = .6; ctx.lineCap = 'round';
+    ctx.beginPath(); S.stroke.forEach((p,i) => i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1])); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.lineCap = 'butt';
+  }
+  if (S.mode === 'draw' && S.mouse && !drag?.type?.startsWith('p')){
+    // つながる場所を丸で示す
+    const t = snapTarget(S.mouse[0], S.mouse[1]);
+    if (t){ ctx.strokeStyle = C.sel; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(t.sx, t.sy, 9, 0, Math.PI*2); ctx.stroke(); }
+  }
+  if (S.mode === 'draw' && S.drawFrom && S.mouse && !S.stroke){
     const n = G.nm.get(S.drawFrom);
     if (n){
       const [x,y] = toS(n.x,n.y);
@@ -780,7 +790,7 @@ function draw(){
   }
   if (!net.links.length){
     ctx.fillStyle = C.muted; ctx.font = '15px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'center';
-    ctx.fillText('「道路を描く」を選び、マップをクリックして道路を引いてください', W/2, H/2);
+    ctx.fillText('「道路を描く」を選び、マップを指やマウスでなぞって道路を引いてください', W/2, H/2);
   }
 }
 function label(t, x, y, col, align='center'){
@@ -955,7 +965,7 @@ function renderProps(){
     const tips = {
       view:'マップをドラッグで移動、ホイール（2本指）で拡大縮小。',
       select:'ノードや道路をクリックして選択。ノード・曲線ハンドルはドラッグで移動。道路をダブルクリックで曲線ハンドルを追加。',
-      draw:'クリックで点を打ち、続けてクリックで道路を延ばします。既存の道路上をクリックすると合流・分岐点になります。Escまたは右クリックで終了。',
+      draw:'マップをなぞると、その線がそのまま道路になります（描いた向きが進行方向）。既存の道路から描き始めると分岐、既存の道路で描き終えると合流になり、自動でなめらかにつながります。制限速度もカーブに合わせて自動で決まります。',
       erase:'消したいノードや道路をクリックします。',
     };
     box.innerHTML = `<span class="ttl">ヒント</span><span class="desc">${tips[S.mode]}</span>`;
@@ -1080,16 +1090,16 @@ $('#gap').oninput = e => { S.gapT = +e.target.value; $('#gapOut').textContent = 
 $('#colorMode').onchange = e => S.colorMode = e.target.value;
 $('#heat').onchange = e => S.heat = e.target.checked;
 $('#labels').onchange = e => S.labels = e.target.checked;
-$('#drawSpeed').innerHTML = speedOptions(60);
-$('#drawKind').onchange = e => $('#drawSpeed').value = KIND[e.target.value].speed;
+$('#drawSpeed').innerHTML = '<option value="auto" selected>速度おまかせ</option>' + speedOptions(0);
+$('#drawKind').onchange = e => { if (e.target.value === 'toll') $('#drawSpeed').value = 20; };
 
 function setMode(m){
-  S.mode = m; S.drawFrom = null;
+  S.mode = m; S.drawFrom = null; S.stroke = null;
   if (m === 'view') S.sel = null;
   $('#tools').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   cv.style.cursor = m === 'draw' ? 'crosshair' : m === 'erase' ? 'not-allowed' : 'grab';
   const hints = {view:'観察モード：ドラッグで移動・ホイールで拡大', select:'選択モード：クリックで選択／ドラッグで移動／道路をダブルクリックで曲線ハンドル追加',
-    draw:'描画モード：クリックで道路を延長（既存道路上で合流・分岐）／Esc・右クリックで終了', erase:'削除モード：ノードや道路をクリックで削除'};
+    draw:'描画モード：なぞって道路を描く（既存の道路から描き始めると分岐、既存の道路で終えると合流）', erase:'削除モード：ノードや道路をクリックで削除'};
   $('#hint').textContent = hints[m];
   renderProps();
 }
@@ -1142,6 +1152,7 @@ cv.addEventListener('pointerdown', e => {
   pointers.set(e.pointerId, [sx,sy]);
   if (pointers.size === 2){
     const [a,b] = [...pointers.values()];
+    S.stroke = null;
     drag = {type:'pinch', d0:Math.hypot(a[0]-b[0], a[1]-b[1]), s0:cam.s, c:toW((a[0]+b[0])/2, (a[1]+b[1])/2)};
     return;
   }
@@ -1166,25 +1177,148 @@ cv.addEventListener('pointerdown', e => {
     drag = {type:'pan', sx, sy, cx:cam.x, cy:cam.y}; return;
   }
   if (S.mode === 'draw'){
-    let target = nodeAt(sx, sy);
-    if (!target){ const h = linkAt(sx, sy); if (h) target = splitLink(h); }
-    if (!target){ const [wx,wy] = snapW(...toW(sx, sy)); target = newNode(wx, wy); }
-    if (S.drawFrom && S.drawFrom !== target.id){
-      const kind = $('#drawKind').value;
-      const exists = S.net.links.some(l => l.from === S.drawFrom && l.to === target.id);
-      if (!exists) S.net.links.push({id:S.net.nextId++, from:S.drawFrom, to:target.id, wps:[], kind, speed:+$('#drawSpeed').value});
-    }
-    S.drawFrom = target.id;
-    pruneNodes();
-    commitEdit();
+    drag = {type:'stroke'}; S.stroke = [[sx,sy]];
   }
 });
 function endChain(){ S.drawFrom = null; pruneNodes(); commitEdit(); }
+
+/* ============ なぞって描く ============ */
+// 画面上の点の近くにある「つなげる先」（既存のノード、または道路の上の点）
+function snapTarget(sx, sy){
+  const n = nodeAt(sx, sy, 16);
+  if (n){ const [x,y] = toS(n.x,n.y); return {node:n, sx:x, sy:y}; }
+  const h = linkAt(sx, sy, 13);
+  if (h){
+    // 道路の端の近くなら、端のノードにつなぐ（細切れの道路を作らない）
+    const l = h.link, s = l.g.cum[h.i] + (l.g.cum[h.i+1]-l.g.cum[h.i])*h.t;
+    const near = 14 / cam.s;
+    if (s < near) return snapTarget(...toS(l.fromN.x, l.fromN.y));
+    if (l.g.len - s < near) return snapTarget(...toS(l.toN.x, l.toN.y));
+    const [x,y] = toS(h.pt[0], h.pt[1]); return {hit:h, sx:x, sy:y};
+  }
+  return null;
+}
+function resolveEnd(sx, sy){
+  const t = snapTarget(sx, sy);
+  if (t && t.node) return {n:t.node, attached:true};
+  if (t && t.hit){ const n = splitLink(t.hit); rebuild(); return {n, attached:true}; }
+  const [wx,wy] = snapW(...toW(sx, sy));
+  return {n:newNode(wx, wy), attached:false};
+}
+// ノードでの既存道路の向き（単位ベクトル）。なければ null
+function nodeDir(n){
+  const o = n.out && n.out[0], i = n.in && n.in[0];
+  if (o){ const p = posAt(o, 0); return [Math.cos(p.ang), Math.sin(p.ang)]; }
+  if (i){ const p = posAt(i, i.g.len); return [Math.cos(p.ang), Math.sin(p.ang)]; }
+  return null;
+}
+// 間引き（Ramer–Douglas–Peucker）
+function rdp(P, eps){
+  if (P.length < 3) return P;
+  const [a, b] = [P[0], P[P.length-1]];
+  const dx = b[0]-a[0], dy = b[1]-a[1], L = Math.hypot(dx, dy) || 1;
+  let im = 0, dm = 0;
+  for (let i=1;i<P.length-1;i++){
+    const d = Math.abs((P[i][0]-a[0])*dy - (P[i][1]-a[1])*dx) / L;
+    if (d > dm){ dm = d; im = i; }
+  }
+  if (dm <= eps) return [a, b];
+  return [...rdp(P.slice(0, im+1), eps).slice(0, -1), ...rdp(P.slice(im), eps)];
+}
+// カーブのきつさから制限速度を決める（横加速度 2.5m/s² 程度に収まる速度）
+function autoSpeed(l, cap){
+  const {pts, cum, len} = l.g;
+  let rMin = Infinity;
+  const at = s => { const p = posAt(l, s); return [p.x, p.y]; };
+  const h = 15;
+  for (let s = h; s <= len - h; s += 5){
+    const a = at(s-h), b = at(s), c = at(s+h);
+    const ab = Math.hypot(b[0]-a[0], b[1]-a[1]), bc = Math.hypot(c[0]-b[0], c[1]-b[1]), ca = Math.hypot(a[0]-c[0], a[1]-c[1]);
+    const cross = Math.abs((b[0]-a[0])*(c[1]-a[1]) - (b[1]-a[1])*(c[0]-a[0]));
+    if (cross > 1e-6) rMin = Math.min(rMin, ab*bc*ca / (2*cross));
+  }
+  const v = Math.sqrt(2.5 * rMin) * 3.6;
+  let best = SPEEDS[0];
+  for (const sp of SPEEDS) if (sp <= v && sp <= cap) best = sp;
+  return best;
+}
+function finishStroke(stroke){
+  S.stroke = null;
+  let plen = 0;
+  for (let i=1;i<stroke.length;i++) plen += Math.hypot(stroke[i][0]-stroke[i-1][0], stroke[i][1]-stroke[i-1][1]);
+  if (plen < 12){ tapDraw(...stroke[0]); return; }
+  S.drawFrom = null;
+  const A = resolveEnd(...stroke[0]);
+  const B = resolveEnd(...stroke[stroke.length-1]);
+  if (A.n === B.n){ pruneNodes(); commitEdit(); return; }
+  const a = [A.n.x, A.n.y], b = [B.n.x, B.n.y];
+  // 画面上の線を等間隔に並べ直して、なめらかにする
+  let P = stroke.map(p => toW(p[0], p[1]));
+  P[0] = a; P[P.length-1] = b;
+  const step = 6 / cam.s, R = [P[0]];
+  for (let i=1;i<P.length;i++){
+    let prev = R[R.length-1];
+    let d = Math.hypot(P[i][0]-prev[0], P[i][1]-prev[1]);
+    while (d >= step){
+      const t = step / d;
+      prev = [prev[0] + (P[i][0]-prev[0])*t, prev[1] + (P[i][1]-prev[1])*t];
+      R.push(prev); d -= step;
+    }
+  }
+  R.push(b);
+  for (let k=0;k<4;k++)
+    for (let i=1;i<R.length-1;i++) R[i] = [(R[i-1][0] + R[i][0]*2 + R[i+1][0])/4, (R[i-1][1] + R[i][1]*2 + R[i+1][1])/4];
+  let wps = rdp(R, 4 / cam.s).slice(1, -1);
+  // 既存の道路とつなぐ所は、その道路の向きに沿ってなめらかに合流・分岐させる
+  const span = Math.hypot(b[0]-a[0], b[1]-a[1]);
+  const k = Math.min(40, span * 0.25);
+  const tangent = (node, ref, sign) => {
+    const d = nodeDir(node); if (!d) return null;
+    const vx = ref[0]-node.x, vy = ref[1]-node.y, vl = Math.hypot(vx, vy) || 1;
+    if ((vx*d[0] + vy*d[1]) * sign / vl < Math.cos(55*Math.PI/180)) return null; // 急な角度や逆向きのときは無理に合わせない
+    return [node.x + d[0]*k*sign, node.y + d[1]*k*sign];
+  };
+  const refA = wps[0] || b, refB = wps[wps.length-1] || a;
+  const ta = A.attached ? tangent(A.n, refA, 1) : null;
+  const tb = B.attached ? tangent(B.n, refB, -1) : null;
+  if (ta) wps = [ta, ...wps.filter(p => Math.hypot(p[0]-a[0], p[1]-a[1]) > k*2.2)];
+  if (tb) wps = [...wps.filter(p => Math.hypot(p[0]-b[0], p[1]-b[1]) > k*2.2), tb];
+  wps = wps.map(p => [Math.round(p[0]*10)/10, Math.round(p[1]*10)/10]);
+  // 種類と速度
+  let kind = $('#drawKind').value;
+  if (kind === 'auto') kind = (A.attached || B.attached) ? 'ramp' : 'main';
+  const l = {id:S.net.nextId++, from:A.n.id, to:B.n.id, wps, kind, speed:KIND[kind].speed};
+  S.net.links.push(l);
+  const spSel = $('#drawSpeed').value;
+  if (spSel === 'auto'){
+    buildGeom(l, new Map(S.net.nodes.map(n => [n.id, n])));
+    l.speed = kind === 'toll' ? 20 : autoSpeed(l, kind === 'main' ? 100 : 80);
+  } else l.speed = +spSel;
+  pruneNodes(); commitEdit();
+  S.sel = {type:'link', id:l.id}; renderProps();
+}
+// タップ（なぞらずに押しただけ）：従来どおり点をつないで直線の道路を延ばす
+function tapDraw(sx, sy){
+  const target = resolveEnd(sx, sy).n;
+  if (S.drawFrom && S.drawFrom !== target.id){
+    let kind = $('#drawKind').value; if (kind === 'auto') kind = 'ramp';
+    const spSel = $('#drawSpeed').value;
+    const exists = S.net.links.some(l => l.from === S.drawFrom && l.to === target.id);
+    if (!exists) S.net.links.push({id:S.net.nextId++, from:S.drawFrom, to:target.id, wps:[], kind, speed: spSel === 'auto' ? KIND[kind].speed : +spSel});
+  }
+  S.drawFrom = target.id;
+  pruneNodes(); commitEdit();
+}
 cv.addEventListener('pointermove', e => {
   const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
   S.mouse = [sx, sy];
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [sx,sy]);
   if (!drag) return;
+  if (drag.type === 'stroke'){
+    const last = S.stroke[S.stroke.length-1];
+    if (Math.hypot(sx-last[0], sy-last[1]) >= 3) S.stroke.push([sx, sy]);
+    return;
+  }
   if (drag.type === 'pinch' && pointers.size === 2){
     const [a,b] = [...pointers.values()];
     cam.s = Math.max(0.05, Math.min(20, drag.s0 * Math.hypot(a[0]-b[0], a[1]-b[1]) / drag.d0));
@@ -1203,6 +1337,7 @@ cv.addEventListener('pointermove', e => {
 function endDrag(e){
   pointers.delete(e.pointerId);
   if (!drag) return;
+  if (drag.type === 'stroke'){ const st = S.stroke; drag = null; if (st && e.type === 'pointerup') finishStroke(st); else S.stroke = null; return; }
   if ((drag.type === 'node' || drag.type === 'wp') && drag.moved) commitEdit();
   if (drag.type === 'pinch' && pointers.size === 1){ const [p] = [...pointers.values()]; drag = {type:'pan', sx:p[0], sy:p[1], cx:cam.x, cy:cam.y}; return; }
   drag = null;
@@ -1232,7 +1367,7 @@ cv.addEventListener('wheel', e => {
 window.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea,select')) return;
   if (e.key === ' '){ e.preventDefault(); togglePlay(); }
-  else if (e.key === 'Escape'){ if (S.drawFrom) endChain(); else { S.sel = null; renderProps(); } }
+  else if (e.key === 'Escape'){ S.stroke = null; if (S.drawFrom) endChain(); else { S.sel = null; renderProps(); } }
   else if (e.key === 'Delete' || e.key === 'Backspace'){ if (S.sel && S.mode !== 'view'){ S.sel.type === 'link' ? deleteLink(S.sel.id) : deleteNode(S.sel.id); } }
   else { const m = {v:'view', s:'select', r:'draw', d:'erase'}[e.key.toLowerCase()]; if (m) setMode(m); }
 });
