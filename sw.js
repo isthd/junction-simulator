@@ -1,10 +1,11 @@
 // オフライン対応用のService Worker
 // アプリ本体はネット優先（つながらないときはキャッシュ）、フォントはキャッシュ優先。
-const CACHE = 'jct-sim-v1';
+const CACHE = 'jct-sim-v2';
 const ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
+  './vendor/three-bundle.js',
   './icons/icon.svg',
   './icons/icon-32.png',
   './icons/icon-192.png',

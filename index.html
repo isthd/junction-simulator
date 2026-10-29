@@ -43,7 +43,7 @@
 html,body{height:100%}
 body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px}
 *{box-sizing:border-box}
-#app{height:100%;display:grid;grid-template-rows:auto 1fr;gap:10px;
+#app{height:100%;display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(0,1fr);gap:10px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px}
 .top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;justify-content:space-between}
 .brand{display:flex;align-items:center;gap:10px;min-width:0}
@@ -99,7 +99,10 @@ table.od td.tot{font-family:var(--f-num);color:var(--muted)}
 .mylist .it span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 textarea{width:100%;min-height:70px;font-family:var(--f-num);font-size:11px}
 .stage{position:relative;border:1px solid var(--line);border-radius:10px;overflow:hidden;min-height:0;background:var(--ground)}
-canvas#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+canvas#cv,canvas#cv3{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+canvas#cv3{display:none}
+.stage.is3d canvas#cv{pointer-events:none}
+.stage.is3d canvas#cv3{display:block}
 .stats{position:absolute;top:10px;right:10px;width:250px;background:var(--label-bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;backdrop-filter:blur(4px);font-size:13px}
 .stats .grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
 .kv{display:flex;flex-direction:column}
@@ -120,7 +123,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;dis
 @media (max-width:860px){
   html,body{height:auto}
   #app{height:auto}
-  .main{grid-template-columns:1fr}
+  .main{grid-template-columns:minmax(0,1fr)}
   .stage{height:62vh;order:-1}
   .stats{width:auto;left:10px;right:10px;top:auto;bottom:44px;padding:8px 10px}
   .stats .grid{grid-template-columns:repeat(3,1fr)}
@@ -143,6 +146,9 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;dis
         <button data-v="1" aria-pressed="false">×1</button><button data-v="2" aria-pressed="false">×2</button><button data-v="5" aria-pressed="true">×5</button><button data-v="10" aria-pressed="false">×10</button><button data-v="20" aria-pressed="false">×20</button>
       </div>
       <button id="btnReset">車両をリセット</button>
+      <div class="seg" id="viewSeg" role="group" aria-label="表示方法">
+        <button data-v="2d" aria-pressed="true" title="2キー">2D</button><button data-v="3d" aria-pressed="false" title="3キー">3D</button>
+      </div>
       <button id="btnFit">全体表示</button>
       <div class="clock" id="clock" aria-label="シミュレーション経過時間">00:00:00</div>
     </div>
@@ -206,6 +212,7 @@ canvas#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;dis
     </aside>
 
     <section class="stage" id="stage">
+      <canvas id="cv3" aria-label="3D表示のマップ"></canvas>
       <canvas id="cv"></canvas>
       <div class="stats" id="stats">
         <div class="grid">
@@ -390,8 +397,9 @@ const S = {
   queues:{}, arrivals:{}, nextArr:{}, rateUsed:{},
   log:[], history:[], done:0, vid:1,
   mode:'view', sel:null, drawFrom:null, mouse:null, stroke:null,
-  colorMode:'dest', heat:true, labels:true,
+  colorMode:'dest', heat:true, labels:true, view:'2d',
 };
+let netVer = 0; // 道路網を作り直すたびに増やす（3D表示の作り直しの合図）
 let G = null; // 派生データ
 const cam = {x:0, y:0, s:1};
 
@@ -468,6 +476,7 @@ function rebuild(){
     }
   }
   G = {nm, sources, sinks, paths};
+  netVer++;
   // OD 初期値
   const od = net.od, valid = new Set(Object.keys(paths));
   for (const key of Object.keys(od)) if (!valid.has(key)) delete od[key];
@@ -633,8 +642,9 @@ const cv = $('#cv'), ctx = cv.getContext('2d');
 let W = 0, H = 0, DPR = 1, C = {};
 function readColors(){
   const cs = getComputedStyle(document.documentElement);
-  for (const k of ['ground','grid','road','casing','mark','local','label-bg','label-fg','sel','accent','good','warn','bad','muted','fg','line'])
+  for (const k of ['bg','ground','grid','road','casing','mark','local','label-bg','label-fg','sel','accent','good','warn','bad','muted','fg','line'])
     C[k] = cs.getPropertyValue('--'+k).trim();
+  if (V3.ready) theme3D();
 }
 function resize(){
   const r = cv.getBoundingClientRect();
@@ -669,6 +679,7 @@ function congestionColor(r){ return r > 0.7 ? C.good : r > 0.4 ? C.warn : C.bad;
 
 function draw(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
+  if (S.view === '3d' && V3.ready){ draw3D(); return; }
   ctx.fillStyle = C.ground; ctx.fillRect(0,0,W,H);
   // グリッド
   const step = cam.s > 1.5 ? 10 : cam.s > 0.3 ? 100 : 500;
@@ -805,8 +816,12 @@ function label(t, x, y, col, align='center'){
 function nodeLabel(n, l, isSrc){
   if (!l) return;
   const p = isSrc ? posAt(l, 0) : posAt(l, l.g.len);
-  const dir = isSrc ? -1 : 1;
   const [x,y] = toS(n.x,n.y);
+  nodeLabelAt(n, x, y, p.ang, isSrc);
+}
+function nodeLabelAt(n, x, y, ang, isSrc){
+  const dir = isSrc ? -1 : 1;
+  const p = {ang};
   // 進行方向の外側へ28px、進行方向の左へ14pxずらす（同じ地点の流入・流出ラベルが重ならないように）
   const c = Math.cos(p.ang), s = Math.sin(p.ang);
   const ox = c*dir*28 + s*14, oy = s*dir*28 - c*14;
@@ -917,7 +932,7 @@ function loadNet(net, key, label){
   S.net = JSON.parse(JSON.stringify(net));
   S.presetKey = key; S.label = label || '';
   S.sel = null; S.drawFrom = null;
-  rebuild(); resetSim(); camTouched = false; fit(); renderOD(); renderProps(); syncPresetSel(); autosave();
+  rebuild(); resetSim(); camTouched = false; fit(); V3.needFit = true; renderOD(); renderProps(); syncPresetSel(); autosave();
 }
 function serialize(){
   const n = S.net;
@@ -1078,7 +1093,7 @@ $('#speedSeg').addEventListener('click', e => {
   $('#speedSeg').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
 });
 $('#btnReset').onclick = resetSim;
-$('#btnFit').onclick = fit;
+$('#btnFit').onclick = () => S.view === '3d' && V3.ready ? fit3D() : fit();
 function setMult(m){
   S.mult = m; $('#mult').value = Math.round(m*100); $('#multOut').textContent = Math.round(m*100) + '%';
   $('#timeChips').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', Math.abs(+b.dataset.m - m) < 1e-6));
@@ -1094,13 +1109,14 @@ $('#drawSpeed').innerHTML = '<option value="auto" selected>速度おまかせ</o
 $('#drawKind').onchange = e => { if (e.target.value === 'toll') $('#drawSpeed').value = 20; };
 
 function setMode(m){
+  if (m !== 'view' && S.view === '3d') setView('2d'); // 編集は2Dで行う
   S.mode = m; S.drawFrom = null; S.stroke = null;
   if (m === 'view') S.sel = null;
   $('#tools').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   cv.style.cursor = m === 'draw' ? 'crosshair' : m === 'erase' ? 'not-allowed' : 'grab';
   const hints = {view:'観察モード：ドラッグで移動・ホイールで拡大', select:'選択モード：クリックで選択／ドラッグで移動／道路をダブルクリックで曲線ハンドル追加',
     draw:'描画モード：なぞって道路を描く（既存の道路から描き始めると分岐、既存の道路で終えると合流）', erase:'削除モード：ノードや道路をクリックで削除'};
-  $('#hint').textContent = hints[m];
+  $('#hint').textContent = S.view === '3d' ? HINT3D : hints[m];
   renderProps();
 }
 $('#tools').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.mode); });
@@ -1369,8 +1385,397 @@ window.addEventListener('keydown', e => {
   if (e.key === ' '){ e.preventDefault(); togglePlay(); }
   else if (e.key === 'Escape'){ S.stroke = null; if (S.drawFrom) endChain(); else { S.sel = null; renderProps(); } }
   else if (e.key === 'Delete' || e.key === 'Backspace'){ if (S.sel && S.mode !== 'view'){ S.sel.type === 'link' ? deleteLink(S.sel.id) : deleteNode(S.sel.id); } }
+  else if (e.key === '2' || e.key === '3') setView(e.key + 'd');
   else { const m = {v:'view', s:'select', r:'draw', d:'erase'}[e.key.toLowerCase()]; if (m) setMode(m); }
 });
+
+/* ============ 3D表示 ============ */
+// three.js は3Dを選んだときだけ読み込む（vendor/three-bundle.js）。シミュレーション自体は2Dのまま、見た目だけ立体にする。
+const LS_VIEW = 'jctsim.view.v1';
+const HINT3D = '3D表示：ドラッグで回転／右ドラッグ・2本指で移動／ホイール・ピンチで拡大。編集ツールを選ぶと2Dに戻ります';
+const cv3 = $('#cv3');
+const V3 = {ready:false, loading:null, want:'2d', ver:-1, needFit:true, X:[]};
+// 立体交差の高さ：上を通る道路は下の道路より CLEAR 上がり、勾配 SLOPE で地面に下りる
+const H3 = {CLEAR:7.5, SLOPE:0.045, PLAT:18, ROAD_W:6, TOP:0.15, DECK:1.2};
+
+function loadThree(){
+  if (window.THREE3) return Promise.resolve(window.THREE3);
+  if (!V3.loading){
+    V3.loading = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/three-bundle.js';
+      s.onload = () => window.THREE3 ? res(window.THREE3) : rej(new Error('three'));
+      s.onerror = () => { s.remove(); rej(new Error('load')); };
+      document.head.appendChild(s);
+    });
+    V3.loading.catch(() => { V3.loading = null; });
+  }
+  return V3.loading;
+}
+function syncViewSeg(v){ $('#viewSeg').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v)); }
+async function setView(v){
+  if (v !== '2d' && v !== '3d') return;
+  V3.want = v; syncViewSeg(v);
+  if (v === '3d' && !V3.ready){
+    $('#hint').textContent = '3D表示を準備しています…';
+    try { await loadThree(); if (!V3.ready) init3D(); }
+    catch {
+      if (V3.want === '3d'){ V3.want = '2d'; syncViewSeg('2d'); }
+      $('#hint').textContent = '3D表示を開けませんでした（この端末・ブラウザが3D描画（WebGL）に対応していないか、読み込みに失敗しました）';
+      return;
+    }
+    if (V3.want !== '3d') return;
+  }
+  S.view = v;
+  $('#stage').classList.toggle('is3d', v === '3d');
+  try { localStorage.setItem(LS_VIEW, v); } catch {}
+  setMode(v === '3d' ? 'view' : S.mode);
+}
+$('#viewSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setView(b.dataset.v); });
+
+function init3D(){
+  const T = window.THREE3;
+  const renderer = new T.WebGLRenderer({canvas:cv3, antialias:true});
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
+  const scene = new T.Scene();
+  scene.fog = new T.Fog(0xffffff, 3000, 12000);
+  const camera = new T.PerspectiveCamera(45, 1, 1, 20000);
+  const controls = new T.OrbitControls(camera, cv3);
+  controls.enableDamping = true; controls.dampingFactor = 0.12;
+  controls.maxPolarAngle = Math.PI * 0.47; controls.minDistance = 15; controls.maxDistance = 9000;
+  controls.screenSpacePanning = false; controls.zoomToCursor = true;
+  const hemi = new T.HemisphereLight(0xffffff, 0x888888, 1.6);
+  const sun = new T.DirectionalLight(0xffffff, 2.2);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.6;
+  scene.add(hemi, sun, sun.target);
+  const ground = new T.Mesh(new T.PlaneGeometry(1, 1), new T.MeshLambertMaterial({polygonOffset:true, polygonOffsetFactor:2, polygonOffsetUnits:2}));
+  ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+  const mats = {
+    side: new T.MeshLambertMaterial({side:T.DoubleSide}),
+    local: new T.MeshLambertMaterial({side:T.DoubleSide, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1}),
+    veh: new T.MeshLambertMaterial(),
+    grid: new T.LineBasicMaterial(),
+  };
+  Object.assign(V3, {T, renderer, scene, camera, controls, hemi, sun, ground, mats,
+    vehGeo:new T.BoxGeometry(1, 1, 1), pierGeo:new T.CylinderGeometry(0.8, 0.8, 1, 10),
+    net:null, veh:null, vehCap:0, cols:new Map(), o:new T.Object3D(), v:new T.Vector3(), ready:true});
+  theme3D();
+}
+function col3(css){
+  let c = V3.cols.get(css);
+  if (!c){ c = new V3.T.Color(css); V3.cols.set(css, c); }
+  return c;
+}
+function theme3D(){
+  const {T, scene, mats, ground, hemi, sun} = V3;
+  V3.cols.clear();
+  const bg = new T.Color(C.bg), dark = bg.r + bg.g + bg.b < 0.3;
+  scene.background = bg; scene.fog.color.copy(bg);
+  ground.material.color.set(C.ground);
+  mats.side.color.set(C.local).lerp(new T.Color(C.road), 0.35);
+  mats.local.color.set(C.local);
+  mats.grid.color.set(C.ground).lerp(new T.Color(C.fg), dark ? 0.025 : 0.09);
+  hemi.intensity = dark ? 0.8 : 1.7; sun.intensity = dark ? 0.9 : 2.0;
+  V3.roadCol = new T.Color(C.road); V3.tollCol = new T.Color(C.road).lerp(new T.Color(C.warn), 0.45);
+}
+
+/* --- 立体交差の検出と高さ --- */
+function segCross(p1, p2, q1, q2){
+  const rx = p2[0]-p1[0], ry = p2[1]-p1[1], sx = q2[0]-q1[0], sy = q2[1]-q1[1];
+  const den = rx*sy - ry*sx; if (Math.abs(den) < 1e-9) return null;
+  const qx = q1[0]-p1[0], qy = q1[1]-p1[1];
+  const t = (qx*sy - qy*sx)/den, u = (qx*ry - qy*rx)/den;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return {t, u, sin:Math.abs(den) / (Math.hypot(rx, ry)*Math.hypot(sx, sy) || 1)};
+}
+// 道路の端（合流・分岐のない区間をたどった先）までの余裕。上を通る道路を選ぶときに使う
+function roomOf(l, s){
+  let back = s, fwd = l.g.len - s, n = l.fromN, k = 0;
+  while (back < 400 && n.in.length === 1 && n.out.length === 1 && k++ < 50){ back += n.in[0].g.len; n = n.in[0].fromN; }
+  n = l.toN; k = 0;
+  while (fwd < 400 && n.in.length === 1 && n.out.length === 1 && k++ < 50){ fwd += n.out[0].g.len; n = n.out[0].toN; }
+  return Math.min(back, fwd, 400);
+}
+function aUpper(a, sa, b, sb){
+  const la = KIND[a.kind].layer, lb = KIND[b.kind].layer;
+  if (la !== lb) return la > lb;                        // ランプ・料金所は本線の上を通す
+  const ra = roomOf(a, sa), rb = roomOf(b, sb);
+  if (Math.abs(ra - rb) > 0.3*Math.max(ra, rb)) return ra > rb;   // 上り下りの余裕がある方を上に
+  const ha = Math.abs(Math.cos(posAt(a, sa).ang)), hb = Math.abs(Math.cos(posAt(b, sb).ang));
+  if (Math.abs(ha - hb) > 0.1) return ha > hb;          // それでも同じなら東西方向を上に
+  return a.id < b.id;
+}
+function findCrossings(){
+  const items = [];
+  const bbox = P => { let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity; for (const p of P){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); } return [x0-1,y0-1,x1+1,y1+1]; };
+  for (const l of S.net.links){
+    const p = l.g.pts, c = l.g.cum, P = [], Cm = [];
+    for (let i=0;i<p.length;i+=2){ P.push(p[i]); Cm.push(c[i]); }
+    if ((p.length-1) % 2){ P.push(p[p.length-1]); Cm.push(c[c.length-1]); }
+    items.push({l, P, Cm, bb:bbox(P)});
+  }
+  for (const d of S.net.deco) if (d.type === 'road') items.push({deco:true, P:d.pts, Cm:d.pts.map(() => 0), bb:bbox(d.pts)});
+  const out = [];
+  for (let i=0;i<items.length;i++) for (let j=i+1;j<items.length;j++){
+    const A = items[i], B = items[j];
+    if (A.deco && B.deco) continue;
+    if (A.bb[2] < B.bb[0] || B.bb[2] < A.bb[0] || A.bb[3] < B.bb[1] || B.bb[3] < A.bb[1]) continue;
+    const shared = (!A.deco && !B.deco) ? [A.l.from, A.l.to].filter(id => id === B.l.from || id === B.l.to).map(id => G.nm.get(id)) : [];
+    const found = [];
+    for (let a=0;a<A.P.length-1;a++) for (let b=0;b<B.P.length-1;b++){
+      const r = segCross(A.P[a], A.P[a+1], B.P[b], B.P[b+1]);
+      if (!r || r.sin < 0.17) continue;                 // ほぼ平行（合流・分岐の付け根）は交差とみなさない
+      const x = A.P[a][0] + (A.P[a+1][0]-A.P[a][0])*r.t, y = A.P[a][1] + (A.P[a+1][1]-A.P[a][1])*r.t;
+      if (shared.some(n => Math.hypot(n.x-x, n.y-y) < 40)) continue;
+      if (found.some(f => Math.hypot(f[0]-x, f[1]-y) < 20)) continue;
+      found.push([x, y]);
+      const sa = A.Cm[a] + (A.Cm[a+1]-A.Cm[a])*r.t, sb = B.Cm[b] + (B.Cm[b+1]-B.Cm[b])*r.t;
+      let up;
+      if (A.deco) up = false; else if (B.deco) up = true; else up = aUpper(A.l, sa, B.l, sb);
+      out.push(up ? {up:A.l, su:sa, lo:B.l || null, sl:sb, sin:r.sin, tgt:H3.CLEAR}
+                  : {up:B.l, su:sb, lo:A.l || null, sl:sa, sin:r.sin, tgt:H3.CLEAR});
+    }
+  }
+  return out;
+}
+function computeHeights(){
+  const {CLEAR, SLOPE, PLAT} = H3, links = S.net.links, nodes = S.net.nodes;
+  const X = V3.X = findCrossings();
+  for (let it=0; it<6; it++){
+    for (const l of links){
+      const c = l.g.cum, d = l.h = new Float32Array(c.length);
+      for (const x of X) if (x.up === l) for (let i=0;i<c.length;i++) d[i] = Math.max(d[i], x.tgt - Math.max(0, Math.abs(c[i]-x.su) - PLAT)*SLOPE);
+    }
+    for (const n of nodes) n.h = 0;
+    for (const l of links){ l.fromN.h = Math.max(l.fromN.h, l.h[0]); l.toN.h = Math.max(l.toN.h, l.h[l.h.length-1]); }
+    for (let r=0; r<30; r++){                             // つながった道路どうしで高さをそろえる
+      let ch = false;
+      for (const l of links){
+        const drop = l.g.len*SLOPE;
+        if (l.fromN.h - drop > l.toN.h + 1e-3){ l.toN.h = l.fromN.h - drop; ch = true; }
+        if (l.toN.h - drop > l.fromN.h + 1e-3){ l.fromN.h = l.toN.h - drop; ch = true; }
+      }
+      if (!ch) break;
+    }
+    for (const l of links){
+      const c = l.g.cum, d = l.h, len = l.g.len;
+      for (let i=0;i<c.length;i++) d[i] = Math.max(d[i], l.fromN.h - c[i]*SLOPE, l.toN.h - (len - c[i])*SLOPE);
+    }
+    // 下の道路が持ち上がっていたら、上の道路をさらに上げる（3層以上の立体交差）
+    let changed = false;
+    for (const x of X){
+      const low = x.lo ? hAt(x.lo, x.sl)[0] : 0;
+      if (x.tgt < low + CLEAR - 0.05 && x.tgt < 40){ x.tgt = low + CLEAR; changed = true; }
+    }
+    if (!changed) break;
+  }
+}
+function hAt(l, s){
+  const c = l.g.cum, h = l.h;
+  if (!h) return [0, 0];
+  s = Math.max(0, Math.min(l.g.len, s));
+  let lo = 0, hi = c.length-1;
+  while (hi-lo > 1){ const m = (lo+hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
+  const seg = c[hi]-c[lo] || 1, t = (s-c[lo])/seg;
+  return [h[lo] + (h[hi]-h[lo])*t, (h[hi]-h[lo])/seg];
+}
+
+/* --- 形を作る --- */
+function geo3(a){
+  const g = new V3.T.BufferGeometry();
+  g.setAttribute('position', new V3.T.Float32BufferAttribute(a, 3));
+  g.computeVertexNormals();
+  return g;
+}
+// 道路の路面（top）と側面・裏面（side）。pts は平面座標、hs は各点の高さ
+function deckGeom(pts, hs, w, topOff, withSide){
+  const n = pts.length, Lp = [], Rp = [];
+  for (let i=0;i<n;i++){
+    const a = pts[Math.max(0, i-1)], b = pts[Math.min(n-1, i+1)];
+    let tx = b[0]-a[0], tz = b[1]-a[1]; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+    const nx = -tz*w/2, nz = tx*w/2, x = pts[i][0], z = pts[i][1], y = hs[i] + topOff;
+    Lp.push([x+nx, y, z+nz]); Rp.push([x-nx, y, z-nz]);
+  }
+  const top = [], sd = [];
+  const tri = (arr, a, b, c) => arr.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2]);
+  const bot = i => Math.max(-0.05, hs[i] - H3.DECK);
+  for (let i=0;i<n-1;i++){
+    const l0 = Lp[i], l1 = Lp[i+1], r0 = Rp[i], r1 = Rp[i+1];
+    tri(top, l0, l1, r0); tri(top, r0, l1, r1);
+    if (!withSide) continue;
+    const lb0 = [l0[0], bot(i), l0[2]], lb1 = [l1[0], bot(i+1), l1[2]], rb0 = [r0[0], bot(i), r0[2]], rb1 = [r1[0], bot(i+1), r1[2]];
+    tri(sd, l0, lb0, l1); tri(sd, lb0, lb1, l1);
+    tri(sd, r0, r1, rb0); tri(sd, rb0, r1, rb1);
+    tri(sd, lb0, rb0, lb1); tri(sd, rb0, rb1, lb1);
+  }
+  return {top:geo3(top), side:withSide ? geo3(sd) : null};
+}
+function build3D(){
+  const {T, scene, mats, sun, ground} = V3;
+  if (V3.net){
+    scene.remove(V3.net);
+    V3.net.traverse(o => { if (o.geometry && o.geometry !== V3.pierGeo) o.geometry.dispose(); if (o.userData.ownMat) o.material.dispose(); });
+  }
+  V3.ver = netVer;
+  const g = V3.net = new T.Group(); scene.add(g);
+  const net = S.net;
+  // 範囲
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  const add = (x,y) => { x0=Math.min(x0,x); y0=Math.min(y0,y); x1=Math.max(x1,x); y1=Math.max(y1,y); };
+  net.nodes.forEach(n => add(n.x, n.y)); net.links.forEach(l => l.wps.forEach(p => add(p[0], p[1])));
+  if (!isFinite(x0)){ x0 = y0 = -300; x1 = y1 = 300; }
+  const bb = V3.bb = {cx:(x0+x1)/2, cy:(y0+y1)/2, R:Math.max(x1-x0, y1-y0, 100)/2 + 30};
+  // 全体表示では、流入口・流出口へ延びる直線部分より、ランプが集まる中心部を大きく見せる
+  let c0=Infinity,d0=Infinity,c1=-Infinity,d1=-Infinity;
+  const addC = (x,y) => { c0=Math.min(c0,x); d0=Math.min(d0,y); c1=Math.max(c1,x); d1=Math.max(d1,y); };
+  net.nodes.forEach(n => { if (n.in && n.in.length && n.out.length) addC(n.x, n.y); });
+  net.links.forEach(l => l.wps.forEach(p => addC(p[0], p[1])));
+  V3.core = isFinite(c0) ? {cx:(c0+c1)/2, cy:(d0+d1)/2, R:Math.max(c1-c0, d1-d0, 200)/2 + 60} : bb;
+  computeHeights();
+  // 道路
+  const piers = [];
+  for (const l of net.links){
+    const {top, side} = deckGeom(l.g.pts, l.h, H3.ROAD_W, H3.TOP, true);
+    const off = l.kind === 'main' ? 0 : l.kind === 'ramp' ? -1 : -2;   // 合流部で重なる路面のちらつきを防ぐ
+    const mat = new T.MeshLambertMaterial({side:T.DoubleSide, polygonOffset:off !== 0, polygonOffsetFactor:off, polygonOffsetUnits:off*4});
+    const m = new T.Mesh(top, mat); m.userData.ownMat = true; m.castShadow = m.receiveShadow = true; g.add(m);
+    l.mat3 = mat;
+    const sm = new T.Mesh(side, mats.side); sm.castShadow = sm.receiveShadow = true; g.add(sm);
+    for (let s = 16; s < l.g.len - 8; s += 30){
+      const h = hAt(l, s)[0];
+      if (h < 2.5) continue;
+      if (V3.X.some(x => x.up === l && Math.abs(x.su - s) < 8 + 6/Math.max(0.2, x.sin))) continue; // 下の道路の上には柱を立てない
+      const p = posAt(l, s); piers.push([p.x, p.y, h - H3.DECK]);
+    }
+  }
+  if (piers.length){
+    const pm = new T.InstancedMesh(V3.pierGeo, mats.side, piers.length);
+    piers.forEach(([x, z, h], i) => { V3.o.position.set(x, h/2, z); V3.o.rotation.set(0, 0, 0); V3.o.scale.set(1, h, 1); V3.o.updateMatrix(); pm.setMatrixAt(i, V3.o.matrix); });
+    pm.castShadow = true; pm.receiveShadow = true; pm.frustumCulled = false; g.add(pm);
+  }
+  // 一般道・料金所
+  for (const d of net.deco){
+    if (d.type === 'road'){
+      const m = new T.Mesh(deckGeom(d.pts, d.pts.map(() => 0), d.w, 0.06, false).top, mats.local); m.receiveShadow = true; g.add(m);
+    } else if (d.type === 'rect'){
+      const cx = d.x + d.w/2, cz = d.y + d.h/2;
+      const box = (w, h, dd, x, y, z, mat) => { const m = new T.Mesh(new T.BoxGeometry(w, h, dd), mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; g.add(m); };
+      box(d.w, 0.3, d.h, cx, 0.1, cz, mats.local);
+      box(d.w + 6, 0.7, 12, cx, 6.6, cz, mats.side);                 // 料金所の屋根
+      for (const px of [d.x + 1.5, cx, d.x + d.w - 1.5]) box(0.9, 6.3, 0.9, px, 3.15, cz, mats.side);
+    }
+  }
+  // 地面と目盛り（100m）
+  ground.scale.set(bb.R*16, bb.R*16, 1); ground.position.set(bb.cx, 0, bb.cy);
+  const gl = [], ext = bb.R*1.6, st = 100;
+  const gx0 = Math.floor((bb.cx-ext)/st)*st, gx1 = Math.ceil((bb.cx+ext)/st)*st, gz0 = Math.floor((bb.cy-ext)/st)*st, gz1 = Math.ceil((bb.cy+ext)/st)*st;
+  for (let x = gx0; x <= gx1; x += st) gl.push(x, 0.03, gz0, x, 0.03, gz1);
+  for (let z = gz0; z <= gz1; z += st) gl.push(gx0, 0.03, z, gx1, 0.03, z);
+  const gg = new T.BufferGeometry(); gg.setAttribute('position', new T.Float32BufferAttribute(gl, 3));
+  g.add(new T.LineSegments(gg, mats.grid));
+  // 影
+  const D = bb.R*3, sc = sun.shadow.camera, e = bb.R*1.3;
+  sun.target.position.set(bb.cx, 0, bb.cy);
+  sun.position.set(bb.cx - 0.42*D, 0.85*D, bb.cy - 0.32*D);
+  sc.left = -e; sc.right = e; sc.top = e; sc.bottom = -e; sc.near = 1; sc.far = D*2.5; sc.updateProjectionMatrix();
+  scene.fog.near = bb.R*4; scene.fog.far = bb.R*12;
+}
+function fit3D(){
+  if (!V3.core) return;
+  const {cx, cy, R} = V3.core, cam = V3.camera, ctl = V3.controls;
+  const half = Math.tan(cam.fov*Math.PI/360), aspect = W/Math.max(1, H);
+  const dist = Math.max(80, R / Math.min(half, half*aspect) * 1.05);
+  const pol = 56*Math.PI/180;
+  ctl.target.set(cx, 0, cy);
+  cam.position.set(cx, dist*Math.cos(pol), cy + dist*Math.sin(pol));
+  ctl.update();
+  V3.needFit = false;
+}
+
+/* --- 毎フレームの描画 --- */
+function vehColor(v, L){ return S.colorMode === 'speed' ? congestionColor(v.v / (L.speed/3.6)) : (G.nm.get(v.sink)?.color || C.fg); }
+function draw3D(){
+  ctx.clearRect(0, 0, W, H);
+  if (!W || !H) return;
+  const {renderer, scene, camera, controls, T} = V3;
+  if (V3.ver !== netVer) build3D();
+  if (V3.w !== W || V3.h !== H || V3.dpr !== DPR){
+    renderer.setPixelRatio(Math.min(2, DPR)); renderer.setSize(W, H, false);
+    camera.aspect = W/H; camera.updateProjectionMatrix();
+    V3.w = W; V3.h = H; V3.dpr = DPR;
+  }
+  if (V3.needFit) fit3D();
+  controls.update();
+  const dist = camera.position.distanceTo(controls.target);
+  camera.near = Math.max(0.5, dist*0.01); camera.far = Math.max(dist*12, V3.bb.R*20); camera.updateProjectionMatrix();
+  // 路面の色（渋滞度）
+  for (const l of S.net.links){
+    if (!l.mat3) continue;
+    const base = l.kind === 'toll' ? V3.tollCol : V3.roadCol;
+    l.mat3.color.copy(base);
+    if (S.heat && l.vehs.length){
+      const r = l.vehs.reduce((a, v) => a + v.v, 0) / l.vehs.length / (l.speed/3.6);
+      l.mat3.color.lerp(col3(congestionColor(r)), 0.55);
+    }
+  }
+  // 車両（遠くから見ても分かるよう、引くほど少し大きく描く）
+  const n = S.vehicles.length;
+  if (n > V3.vehCap || !V3.veh){
+    if (V3.veh){ scene.remove(V3.veh); V3.veh.dispose(); }
+    V3.vehCap = Math.max(256, 2 ** Math.ceil(Math.log2(n + 1)));
+    const m = V3.veh = new T.InstancedMesh(V3.vehGeo, V3.mats.veh, V3.vehCap);
+    m.instanceMatrix.setUsage(T.DynamicDrawUsage); m.setColorAt(0, col3('#ffffff')); m.frustumCulled = false;
+    scene.add(m);
+  }
+  const k = Math.max(1, Math.min(3, dist/450)), o = V3.o, vm = V3.veh;
+  let i = 0;
+  for (const v of S.vehicles){
+    const L = v.path[v.pi], s = v.s - v.len/2;
+    const p = posAt(L, s), [h, dh] = hAt(L, s);
+    const ht = (v.truck ? 3.2 : 1.5)*k;
+    o.position.set(p.x, h + H3.TOP + ht/2, p.y);
+    o.rotation.set(0, -p.ang, Math.atan(dh), 'YZX');
+    o.scale.set(v.len*0.92*k, ht, (v.truck ? 2.5 : 1.9)*Math.min(k, 2));
+    o.updateMatrix(); vm.setMatrixAt(i, o.matrix);
+    vm.setColorAt(i, col3(vehColor(v, L)));
+    i++;
+  }
+  vm.count = i; vm.instanceMatrix.needsUpdate = true; if (vm.instanceColor) vm.instanceColor.needsUpdate = true;
+  renderer.render(scene, camera);
+  labels3D();
+}
+function proj3(x, h, y){
+  const v = V3.v.set(x, h, y).project(V3.camera);
+  if (v.z < -1 || v.z > 1) return null;
+  return [(v.x + 1)/2*W, (1 - v.y)/2*H];
+}
+function labels3D(){
+  const net = S.net;
+  if (!net.links.length){
+    ctx.fillStyle = C.muted; ctx.font = '15px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'center';
+    ctx.fillText('2Dに切り替えて「道路を描く」で道路を作ると、ここに立体で表示されます', W/2, H/2);
+    return;
+  }
+  if (!S.labels) return;
+  for (const d of net.deco){
+    let a = null, dx = 0, dy = 0, al = 'center';
+    if (d.type === 'road'){ a = proj3(d.pts[0][0], 0, d.pts[0][1]); dx = 10; dy = d.pts[0][1] === d.pts[1][1] ? -14 : 14; }
+    else if (d.type === 'rect'){ a = proj3(d.x + d.w, 7, d.y + d.h/2); dx = 8; al = 'left'; }
+    else if (d.type === 'text') a = proj3(d.x, 0, d.y);
+    if (a) label(d.t, a[0] + dx, a[1] + dy, C.muted, al);
+  }
+  const one = (n, l, isSrc) => {
+    if (!l) return;
+    const a = proj3(n.x, (n.h || 0) + H3.TOP, n.y); if (!a) return;
+    const s1 = isSrc ? Math.min(30, l.g.len) : Math.max(0, l.g.len - 30);
+    const q = posAt(l, s1), b = proj3(q.x, hAt(l, s1)[0] + H3.TOP, q.y); if (!b) return;
+    const ang = isSrc ? Math.atan2(b[1]-a[1], b[0]-a[0]) : Math.atan2(a[1]-b[1], a[0]-b[0]);
+    nodeLabelAt(n, a[0], a[1], ang, isSrc);
+  };
+  for (const n of G.sources) one(n, n.out[0], true);
+  for (const n of G.sinks) one(n, n.in[0], false);
+}
 
 /* ============ 起動 ============ */
 let camTouched = false;
@@ -1390,6 +1795,8 @@ renderMy(); renderPresetSel();
     if (cur && cur.net && cur.key === S.presetKey) S.net.od = cur.net.od || S.net.od;
   }
   rebuild(); resetSim(); resize(); fit(); renderOD(); syncPresetSel(); setMode('view');
+  let pref = null; try { pref = localStorage.getItem(LS_VIEW); } catch {}
+  if (pref === '3d') setView('3d');
   requestAnimationFrame(frame);
 })();
 </script>
