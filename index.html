@@ -2,6 +2,15 @@
 <html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>JCTシミュレーター</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#e9eeea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1311" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-title" content="JCTシミュ">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=IBM+Plex+Mono:wght@500&display=swap">
@@ -1248,4 +1257,16 @@ renderMy(); renderPresetSel();
   rebuild(); resetSim(); resize(); fit(); renderOD(); syncPresetSel(); setMode('view');
   requestAnimationFrame(frame);
 })();
+</script>
+<script>
+// オフラインで使えるようにService Workerを登録（file:// で開いたときは何もしない）
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(reg => {
+      const urls = performance.getEntriesByType('resource').map(e => e.name)
+        .filter(u => /^https:\/\/fonts\.(googleapis|gstatic)\.com\//.test(u));
+      if (reg.active && urls.length) reg.active.postMessage({ type: 'cache-fonts', urls });
+    }).catch(() => {});
+  });
+}
 </script>
