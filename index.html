@@ -639,6 +639,7 @@ function step(dt){
 
 /* ============ 描画 ============ */
 const cv = $('#cv'), ctx = cv.getContext('2d');
+const cv3 = $('#cv3'); // 3D表示用（WebGL）
 let W = 0, H = 0, DPR = 1, C = {};
 function readColors(){
   const cs = getComputedStyle(document.documentElement);
@@ -652,8 +653,14 @@ function resize(){
   W = r.width; H = r.height;
   cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
 }
-const toS = (x,y) => [(x-cam.x)*cam.s + W/2, (y-cam.y)*cam.s + H/2];
-const toW = (sx,sy) => [(sx-W/2)/cam.s + cam.x, (sy-H/2)/cam.s + cam.y];
+// 地図座標 ⇔ 画面座標。3D表示中は3Dカメラで投影し（h は高さ）、画面から地図へは地面（高さ0）に当てて戻す
+const is3D = () => S.view === '3d' && V3.ready;
+const toS = (x,y,h=0) => is3D() ? toS3(x, y, h) : [(x-cam.x)*cam.s + W/2, (y-cam.y)*cam.s + H/2];
+const toW = (sx,sy) => is3D() ? toW3(sx, sy) : [(sx-W/2)/cam.s + cam.x, (sy-H/2)/cam.s + cam.y];
+// 1mが画面上で何pxか（3Dでは注視点あたりでの目安）
+const pxm = () => is3D() ? H / (2 * V3.camera.position.distanceTo(V3.controls.target) * Math.tan(V3.camera.fov*Math.PI/360)) : cam.s;
+// 道路の i 番目の点の高さ（3D表示用。形を変えている途中で数が合わないときは0）
+const hOf = (l, i) => (l.h && l.h.length === l.g.pts.length) ? l.h[i] : 0;
 
 function fit(){
   const net = S.net;
@@ -671,8 +678,8 @@ function fit(){
 function strokeLink(l){
   const p = l.g.pts;
   ctx.beginPath();
-  let [x,y] = toS(p[0][0],p[0][1]); ctx.moveTo(x,y);
-  for (let i=1;i<p.length;i++){ [x,y] = toS(p[i][0],p[i][1]); ctx.lineTo(x,y); }
+  let [x,y] = toS(p[0][0],p[0][1],hOf(l,0)); ctx.moveTo(x,y);
+  for (let i=1;i<p.length;i++){ [x,y] = toS(p[i][0],p[i][1],hOf(l,i)); ctx.lineTo(x,y); }
   ctx.stroke();
 }
 function congestionColor(r){ return r > 0.7 ? C.good : r > 0.4 ? C.warn : C.bad; }
@@ -750,11 +757,25 @@ function draw(){
     if (v.truck && cam.s > 0.8){ ctx.fillStyle = C.casing; ctx.globalAlpha = .35; ctx.fillRect(len/2 - len*0.22, -wd/2, len*0.22, wd); ctx.globalAlpha = 1; }
     ctx.restore();
   }
-  // 編集用：ノード・ハンドル
+  drawEditOverlay(rw);
+  // ラベル
+  if (S.labels){
+    for (const n of G.sources) nodeLabel(n, n.out[0], true);
+    for (const n of G.sinks) nodeLabel(n, n.in[0], false);
+  }
+  if (!net.links.length) emptyMessage();
+}
+function emptyMessage(){
+  ctx.fillStyle = C.muted; ctx.font = '15px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'center';
+  ctx.fillText('「道路を描く」を選び、マップを指やマウスでなぞって道路を引いてください', W/2, H/2);
+}
+// 編集用の表示（ノード・選択・描いている線）。2Dでも3Dでも同じ画面座標で重ねて描く
+function drawEditOverlay(rw){
+  const net = S.net;
   const editing = S.mode !== 'view';
   if (editing){
     for (const n of net.nodes){
-      const [x,y] = toS(n.x,n.y);
+      const [x,y] = toS(n.x,n.y,n.h);
       const isSrc = n.in.length===0 && n.out.length>0, isSnk = n.out.length===0 && n.in.length>0;
       ctx.beginPath(); ctx.arc(x,y, isSrc||isSnk ? 6 : (n.in.length>1||n.out.length>1) ? 5 : 3.5, 0, Math.PI*2);
       ctx.fillStyle = isSrc ? C.accent : isSnk ? C.fg : C['label-bg'];
@@ -768,11 +789,11 @@ function draw(){
       const l = net.links.find(l => l.id === S.sel.id);
       if (l){
         ctx.lineWidth = rw + 6; ctx.globalAlpha = .45; strokeLink(l); ctx.globalAlpha = 1;
-        for (const w of l.wps){ const [x,y] = toS(w[0],w[1]); ctx.fillStyle = C.sel; ctx.beginPath(); ctx.rect(x-5,y-5,10,10); ctx.fill(); ctx.strokeStyle = C.casing; ctx.lineWidth=1; ctx.stroke(); }
+        for (const w of l.wps){ const [x,y] = toS(w[0],w[1],wpH(l,w)); ctx.fillStyle = C.sel; ctx.beginPath(); ctx.rect(x-5,y-5,10,10); ctx.fill(); ctx.strokeStyle = C.casing; ctx.lineWidth=1; ctx.stroke(); }
       }
     } else {
       const n = G.nm.get(S.sel.id);
-      if (n){ const [x,y] = toS(n.x,n.y); ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2); ctx.lineWidth = 3; ctx.stroke(); }
+      if (n){ const [x,y] = toS(n.x,n.y,n.h); ctx.beginPath(); ctx.arc(x,y,11,0,Math.PI*2); ctx.lineWidth = 3; ctx.stroke(); }
     }
   }
   // 描画中のプレビュー
@@ -789,20 +810,17 @@ function draw(){
   if (S.mode === 'draw' && S.drawFrom && S.mouse && !S.stroke){
     const n = G.nm.get(S.drawFrom);
     if (n){
-      const [x,y] = toS(n.x,n.y);
+      const [x,y] = toS(n.x,n.y,n.h);
       ctx.setLineDash([6,5]); ctx.strokeStyle = C.sel; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(S.mouse[0], S.mouse[1]); ctx.stroke(); ctx.setLineDash([]);
     }
   }
-  // ラベル
-  if (S.labels){
-    for (const n of G.sources) nodeLabel(n, n.out[0], true);
-    for (const n of G.sinks) nodeLabel(n, n.in[0], false);
-  }
-  if (!net.links.length){
-    ctx.fillStyle = C.muted; ctx.font = '15px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'center';
-    ctx.fillText('「道路を描く」を選び、マップを指やマウスでなぞって道路を引いてください', W/2, H/2);
-  }
+}
+// 曲線ハンドルの高さ（いちばん近い道路上の点の高さ）
+function wpH(l, w){
+  const p = l.g.pts; let bi = 0, bd = Infinity;
+  for (let i=0;i<p.length;i+=2){ const d = (p[i][0]-w[0])**2 + (p[i][1]-w[1])**2; if (d < bd){ bd = d; bi = i; } }
+  return hOf(l, bi);
 }
 function label(t, x, y, col, align='center'){
   ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
@@ -1109,14 +1127,14 @@ $('#drawSpeed').innerHTML = '<option value="auto" selected>速度おまかせ</o
 $('#drawKind').onchange = e => { if (e.target.value === 'toll') $('#drawSpeed').value = 20; };
 
 function setMode(m){
-  if (m !== 'view' && S.view === '3d') setView('2d'); // 編集は2Dで行う
   S.mode = m; S.drawFrom = null; S.stroke = null;
   if (m === 'view') S.sel = null;
   $('#tools').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
-  cv.style.cursor = m === 'draw' ? 'crosshair' : m === 'erase' ? 'not-allowed' : 'grab';
+  cv.style.cursor = cv3.style.cursor = m === 'draw' ? 'crosshair' : m === 'erase' ? 'not-allowed' : 'grab';
   const hints = {view:'観察モード：ドラッグで移動・ホイールで拡大', select:'選択モード：クリックで選択／ドラッグで移動／道路をダブルクリックで曲線ハンドル追加',
     draw:'描画モード：なぞって道路を描く（既存の道路から描き始めると分岐、既存の道路で終えると合流）', erase:'削除モード：ノードや道路をクリックで削除'};
-  $('#hint').textContent = S.view === '3d' ? HINT3D : hints[m];
+  $('#hint').textContent = S.view === '3d' ? HINT3D[m] : hints[m];
+  if (V3.ready) orbitButtons();
   renderProps();
 }
 $('#tools').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setMode(b.dataset.mode); });
@@ -1124,7 +1142,7 @@ $('#tools').addEventListener('click', e => { const b = e.target.closest('button'
 /* ヒットテスト */
 function nodeAt(sx, sy, r = 11){
   let best = null, bd = r;
-  for (const n of S.net.nodes){ const [x,y] = toS(n.x,n.y); const d = Math.hypot(x-sx, y-sy); if (d < bd){ bd = d; best = n; } }
+  for (const n of S.net.nodes){ const [x,y] = toS(n.x,n.y,n.h); const d = Math.hypot(x-sx, y-sy); if (d < bd){ bd = d; best = n; } }
   return best;
 }
 function linkAt(sx, sy, r = 9){
@@ -1132,7 +1150,7 @@ function linkAt(sx, sy, r = 9){
   for (const l of S.net.links){
     const p = l.g.pts;
     for (let i=0;i<p.length-1;i++){
-      const [ax,ay] = toS(p[i][0],p[i][1]), [bx,by] = toS(p[i+1][0],p[i+1][1]);
+      const [ax,ay] = toS(p[i][0],p[i][1],hOf(l,i)), [bx,by] = toS(p[i+1][0],p[i+1][1],hOf(l,i+1));
       const dx = bx-ax, dy = by-ay, L2 = dx*dx+dy*dy || 1;
       const t = Math.max(0, Math.min(1, ((sx-ax)*dx + (sy-ay)*dy)/L2));
       const d = Math.hypot(ax+dx*t-sx, ay+dy*t-sy);
@@ -1144,7 +1162,7 @@ function linkAt(sx, sy, r = 9){
 function wpAt(sx, sy){
   if (!S.sel || S.sel.type !== 'link') return null;
   const l = S.net.links.find(l => l.id === S.sel.id); if (!l) return null;
-  for (let i=0;i<l.wps.length;i++){ const [x,y] = toS(l.wps[i][0], l.wps[i][1]); if (Math.abs(x-sx) < 8 && Math.abs(y-sy) < 8) return {link:l, i}; }
+  for (let i=0;i<l.wps.length;i++){ const [x,y] = toS(l.wps[i][0], l.wps[i][1], wpH(l, l.wps[i])); if (Math.abs(x-sx) < 8 && Math.abs(y-sy) < 8) return {link:l, i}; }
   return null;
 }
 function snapW(x, y){ return $('#snap').checked ? [Math.round(x/10)*10, Math.round(y/10)*10] : [Math.round(x*10)/10, Math.round(y*10)/10]; }
@@ -1161,10 +1179,23 @@ function splitLink(hit){
 
 let drag = null;
 const pointers = new Map();
-cv.addEventListener('contextmenu', e => e.preventDefault());
-cv.addEventListener('pointerdown', e => {
-  cv.setPointerCapture(e.pointerId);
+function onPointerDown(e){
   const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+  if (is3D()){
+    // 3D：観察モード・右ボタン・2本指は視点操作（OrbitControls）に任せる
+    pointers.set(e.pointerId, [sx,sy]);
+    if (pointers.size >= 2){
+      if (drag && (drag.type === 'node' || drag.type === 'wp') && drag.moved) commitEdit();
+      S.stroke = null; drag = null; return;
+    }
+    if (S.mode === 'draw' && e.button === 2 && S.drawFrom){ endChain(); return; }
+    if (S.mode === 'view' || e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    editPointerDown(sx, sy);
+    if (drag && drag.type === 'pan') drag = null;
+    return;
+  }
+  e.currentTarget.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, [sx,sy]);
   if (pointers.size === 2){
     const [a,b] = [...pointers.values()];
@@ -1177,6 +1208,9 @@ cv.addEventListener('pointerdown', e => {
     drag = {type:'pan', sx, sy, cx:cam.x, cy:cam.y}; return;
   }
   if (S.mode === 'view'){ drag = {type:'pan', sx, sy, cx:cam.x, cy:cam.y}; cv.style.cursor = 'grabbing'; return; }
+  editPointerDown(sx, sy);
+}
+function editPointerDown(sx, sy){
   if (S.mode === 'select'){
     const w = wpAt(sx, sy);
     if (w){ drag = {type:'wp', ...w, moved:false}; resetSim(); return; }
@@ -1195,22 +1229,30 @@ cv.addEventListener('pointerdown', e => {
   if (S.mode === 'draw'){
     drag = {type:'stroke'}; S.stroke = [[sx,sy]];
   }
-});
+}
+for (const c of [cv, cv3]){
+  c.addEventListener('contextmenu', e => e.preventDefault());
+  c.addEventListener('pointerdown', onPointerDown);
+  c.addEventListener('pointermove', onPointerMove);
+  c.addEventListener('pointerup', endDrag);
+  c.addEventListener('pointercancel', endDrag);
+  c.addEventListener('dblclick', onDblClick);
+}
 function endChain(){ S.drawFrom = null; pruneNodes(); commitEdit(); }
 
 /* ============ なぞって描く ============ */
 // 画面上の点の近くにある「つなげる先」（既存のノード、または道路の上の点）
 function snapTarget(sx, sy){
   const n = nodeAt(sx, sy, 16);
-  if (n){ const [x,y] = toS(n.x,n.y); return {node:n, sx:x, sy:y}; }
+  if (n){ const [x,y] = toS(n.x,n.y,n.h); return {node:n, sx:x, sy:y}; }
   const h = linkAt(sx, sy, 13);
   if (h){
     // 道路の端の近くなら、端のノードにつなぐ（細切れの道路を作らない）
     const l = h.link, s = l.g.cum[h.i] + (l.g.cum[h.i+1]-l.g.cum[h.i])*h.t;
-    const near = 14 / cam.s;
-    if (s < near) return snapTarget(...toS(l.fromN.x, l.fromN.y));
-    if (l.g.len - s < near) return snapTarget(...toS(l.toN.x, l.toN.y));
-    const [x,y] = toS(h.pt[0], h.pt[1]); return {hit:h, sx:x, sy:y};
+    const near = 14 / pxm();
+    if (s < near) return snapTarget(...toS(l.fromN.x, l.fromN.y, l.fromN.h));
+    if (l.g.len - s < near) return snapTarget(...toS(l.toN.x, l.toN.y, l.toN.h));
+    const [x,y] = toS(h.pt[0], h.pt[1], hOf(l, h.i)); return {hit:h, sx:x, sy:y};
   }
   return null;
 }
@@ -1271,7 +1313,7 @@ function finishStroke(stroke){
   // 画面上の線を等間隔に並べ直して、なめらかにする
   let P = stroke.map(p => toW(p[0], p[1]));
   P[0] = a; P[P.length-1] = b;
-  const step = 6 / cam.s, R = [P[0]];
+  const sc = pxm(), step = 6 / sc, R = [P[0]];
   for (let i=1;i<P.length;i++){
     let prev = R[R.length-1];
     let d = Math.hypot(P[i][0]-prev[0], P[i][1]-prev[1]);
@@ -1284,7 +1326,7 @@ function finishStroke(stroke){
   R.push(b);
   for (let k=0;k<4;k++)
     for (let i=1;i<R.length-1;i++) R[i] = [(R[i-1][0] + R[i][0]*2 + R[i+1][0])/4, (R[i-1][1] + R[i][1]*2 + R[i+1][1])/4];
-  let wps = rdp(R, 4 / cam.s).slice(1, -1);
+  let wps = rdp(R, 4 / sc).slice(1, -1);
   // 既存の道路とつなぐ所は、その道路の向きに沿ってなめらかに合流・分岐させる
   const span = Math.hypot(b[0]-a[0], b[1]-a[1]);
   const k = Math.min(40, span * 0.25);
@@ -1325,7 +1367,7 @@ function tapDraw(sx, sy){
   S.drawFrom = target.id;
   pruneNodes(); commitEdit();
 }
-cv.addEventListener('pointermove', e => {
+function onPointerMove(e){
   const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
   S.mouse = [sx, sy];
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, [sx,sy]);
@@ -1345,11 +1387,13 @@ cv.addEventListener('pointermove', e => {
   } else if (drag.type === 'node'){
     const [wx,wy] = snapW(...toW(sx, sy)); drag.n.x = wx; drag.n.y = wy; drag.moved = true;
     for (const l of S.net.links) if (l.from === drag.n.id || l.to === drag.n.id) buildGeom(l, G.nm);
+    if (is3D()) netVer++;   // 3Dの道路も動かしながら作り直す
   } else if (drag.type === 'wp'){
     const [wx,wy] = toW(sx, sy); drag.link.wps[drag.i] = [Math.round(wx), Math.round(wy)]; drag.moved = true;
     buildGeom(drag.link, G.nm);
+    if (is3D()) netVer++;
   }
-});
+}
 function endDrag(e){
   pointers.delete(e.pointerId);
   if (!drag) return;
@@ -1359,9 +1403,7 @@ function endDrag(e){
   drag = null;
   if (S.mode === 'view') cv.style.cursor = 'grab';
 }
-cv.addEventListener('pointerup', endDrag);
-cv.addEventListener('pointercancel', endDrag);
-cv.addEventListener('dblclick', e => {
+function onDblClick(e){
   if (S.mode !== 'select') return;
   const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
   const w = wpAt(sx, sy);
@@ -1372,7 +1414,7 @@ cv.addEventListener('dblclick', e => {
     l.wps.splice(segIdx, 0, [Math.round(h.pt[0]), Math.round(h.pt[1])]);
     S.sel = {type:'link', id:l.id}; commitEdit();
   }
-});
+}
 cv.addEventListener('wheel', e => {
   e.preventDefault();
   const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
@@ -1392,8 +1434,12 @@ window.addEventListener('keydown', e => {
 /* ============ 3D表示 ============ */
 // three.js は3Dを選んだときだけ読み込む（vendor/three-bundle.js）。シミュレーション自体は2Dのまま、見た目だけ立体にする。
 const LS_VIEW = 'jctsim.view.v1';
-const HINT3D = '3D表示：ドラッグで回転／右ドラッグ・2本指で移動／ホイール・ピンチで拡大。編集ツールを選ぶと2Dに戻ります';
-const cv3 = $('#cv3');
+const HINT3D = {
+  view:'3D表示：ドラッグで回転／右ドラッグ・2本指で移動／ホイール・ピンチで拡大',
+  select:'3D・選択モード：クリックで選択／ドラッグで移動。視点は右ドラッグ・2本指で移動（Shift＋右ドラッグで回転）',
+  draw:'3D・描画モード：地面をなぞって道路を描く。視点は右ドラッグ・2本指で移動（Shift＋右ドラッグで回転）',
+  erase:'3D・削除モード：ノードや道路をクリックで削除。視点は右ドラッグ・2本指で移動',
+};
 const V3 = {ready:false, loading:null, want:'2d', ver:-1, needFit:true, X:[]};
 // 立体交差の高さ：上を通る道路は下の道路より CLEAR 上がり、勾配 SLOPE で地面に下りる
 const H3 = {CLEAR:7.5, SLOPE:0.045, PLAT:18, ROAD_W:6, TOP:0.15, DECK:1.2};
@@ -1429,7 +1475,13 @@ async function setView(v){
   S.view = v;
   $('#stage').classList.toggle('is3d', v === '3d');
   try { localStorage.setItem(LS_VIEW, v); } catch {}
-  setMode(v === '3d' ? 'view' : S.mode);
+  setMode(S.mode);
+}
+// 3Dの視点操作：観察モードは左ドラッグで回転。編集モードでは左ドラッグ・1本指を編集に使い、視点は右ドラッグ・2本指で動かす
+function orbitButtons(){
+  const c = V3.controls, ROTATE = 0, DOLLY = 1, PAN = 2;
+  if (S.mode === 'view'){ c.mouseButtons = {LEFT:ROTATE, MIDDLE:DOLLY, RIGHT:PAN}; c.touches = {ONE:ROTATE, TWO:2}; }
+  else { c.mouseButtons = {LEFT:null, MIDDLE:ROTATE, RIGHT:PAN}; c.touches = {ONE:null, TWO:2}; }
 }
 $('#viewSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setView(b.dataset.v); });
 
@@ -1460,7 +1512,7 @@ function init3D(){
   Object.assign(V3, {T, renderer, scene, camera, controls, hemi, sun, ground, mats,
     vehGeo:new T.BoxGeometry(1, 1, 1), pierGeo:new T.CylinderGeometry(0.8, 0.8, 1, 10),
     net:null, veh:null, vehCap:0, cols:new Map(), o:new T.Object3D(), v:new T.Vector3(), ready:true});
-  theme3D();
+  theme3D(); orbitButtons();
 }
 function col3(css){
   let c = V3.cols.get(css);
@@ -1573,7 +1625,7 @@ function computeHeights(){
 }
 function hAt(l, s){
   const c = l.g.cum, h = l.h;
-  if (!h) return [0, 0];
+  if (!h || h.length !== c.length) return [0, 0];
   s = Math.max(0, Math.min(l.g.len, s));
   let lo = 0, hi = c.length-1;
   while (hi-lo > 1){ const m = (lo+hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
@@ -1743,7 +1795,19 @@ function draw3D(){
   }
   vm.count = i; vm.instanceMatrix.needsUpdate = true; if (vm.instanceColor) vm.instanceColor.needsUpdate = true;
   renderer.render(scene, camera);
+  drawEditOverlay(Math.max(3, H3.ROAD_W*pxm()));
   labels3D();
+}
+function toS3(x, y, h){
+  const v = V3.v.set(x, h + H3.TOP, y).project(V3.camera);
+  if (v.z < -1 || v.z > 1) return [-1e5, -1e5];
+  return [(v.x + 1)/2*W, (1 - v.y)/2*H];
+}
+function toW3(sx, sy){
+  const cam = V3.camera, o = cam.position;
+  const d = V3.v.set(sx/W*2 - 1, 1 - sy/H*2, 0.5).unproject(cam).sub(o).normalize();
+  const t = d.y < -1e-4 ? Math.min(-o.y / d.y, 2e4) : 2e4;
+  return [o.x + d.x*t, o.z + d.z*t];
 }
 function proj3(x, h, y){
   const v = V3.v.set(x, h, y).project(V3.camera);
@@ -1752,11 +1816,7 @@ function proj3(x, h, y){
 }
 function labels3D(){
   const net = S.net;
-  if (!net.links.length){
-    ctx.fillStyle = C.muted; ctx.font = '15px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'center';
-    ctx.fillText('2Dに切り替えて「道路を描く」で道路を作ると、ここに立体で表示されます', W/2, H/2);
-    return;
-  }
+  if (!net.links.length){ emptyMessage(); return; }
   if (!S.labels) return;
   for (const d of net.deco){
     let a = null, dx = 0, dy = 0, al = 'center';
