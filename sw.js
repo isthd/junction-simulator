@@ -1,6 +1,6 @@
 // オフライン対応用のService Worker
 // アプリ本体はネット優先（つながらないときはキャッシュ）、フォントはキャッシュ優先。
-const CACHE = 'jct-sim-v2';
+const CACHE = 'jct-sim-v3';
 const ASSETS = [
   './',
   './index.html',

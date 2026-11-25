@@ -50,7 +50,8 @@ body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px
 .sign{background:var(--accent);color:var(--accent-fg);font-weight:700;padding:4px 8px;border-radius:4px;border:2px solid var(--accent-fg);outline:2px solid var(--accent);letter-spacing:.06em;font-size:13px}
 h1{font-size:18px;margin:0;text-wrap:balance}
 .transport{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.clock{font-family:var(--f-num);font-size:18px;font-variant-numeric:tabular-nums;padding:4px 10px;background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:104px;text-align:center}
+.clock{font-family:var(--f-num);font-size:18px;font-variant-numeric:tabular-nums;padding:4px 10px;background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:104px;text-align:center;white-space:nowrap}
+.clock small{font-family:var(--f-ui);font-size:12px;color:var(--muted);margin:0 4px}
 button,select,input,textarea{font:inherit;color:inherit}
 button{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;line-height:1.2}
 button:hover{border-color:var(--accent)}
@@ -120,6 +121,13 @@ canvas#cv3{display:none}
 .hint{position:absolute;left:10px;bottom:10px;right:10px;pointer-events:none;display:flex}
 .hint span{background:var(--label-bg);border:1px solid var(--line);border-radius:6px;padding:5px 9px;font-size:12px;color:var(--muted);max-width:100%}
 .legend{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+.follow{position:absolute;left:10px;bottom:46px;max-width:min(380px,calc(100% - 20px));background:var(--label-bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:none;flex-direction:column;gap:6px;backdrop-filter:blur(4px)}
+.follow.on{display:flex}
+.follow .ttl{font-weight:700;font-size:13px}
+.follow .meta{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.follow .row button{font-size:12px;padding:4px 8px}
+.pill.link{cursor:pointer;display:inline-block;margin-top:4px}
+.pill.link:hover{border-color:var(--accent)}
 @media (max-width:860px){
   html,body{height:auto}
   #app{height:auto}
@@ -132,6 +140,7 @@ canvas#cv3{display:none}
   .kv b{font-size:14px}
   .pill{font-size:11px;padding:2px 7px}
   .hint{display:none}
+  .follow{bottom:8px;left:8px;right:8px;max-width:none}
   .panel{overflow:visible}
 }
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
@@ -150,16 +159,28 @@ canvas#cv3{display:none}
         <button data-v="2d" aria-pressed="true" title="2キー">2D</button><button data-v="3d" aria-pressed="false" title="3キー">3D</button>
       </div>
       <button id="btnFit">全体表示</button>
-      <div class="clock" id="clock" aria-label="シミュレーション経過時間">00:00:00</div>
+      <button id="btnFollow" title="ランダムに選んだ車をカメラで追いかけます">車を追う</button>
+      <div class="clock" id="clock" aria-label="シミュレーションの時刻">06:30</div>
     </div>
   </header>
 
   <div class="main">
     <aside class="panel">
       <div class="sec">
-        <h2>IC・JCTを選ぶ</h2>
-        <select id="presetSel" aria-label="IC・ジャンクションの選択"></select>
+        <h2>街・IC・JCTを選ぶ</h2>
+        <div class="row"><select id="presetSel" aria-label="街・インターチェンジ・ジャンクションの選択" style="flex:1"></select><button id="btnNewCity">別の街をつくる</button></div>
         <p class="desc" id="presetDesc"></p>
+      </div>
+
+      <div class="sec">
+        <h2>時間と天気</h2>
+        <div class="row"><input type="checkbox" id="dayCycle" checked><label for="dayCycle">1日の流れ（朝夕のラッシュ・昼と夜）</label></div>
+        <div class="chips" id="hourChips">
+          <button data-h="7">朝 7時</button><button data-h="12">昼 12時</button><button data-h="17.5">夕方 17時半</button><button data-h="22">夜 22時</button>
+        </div>
+        <div class="row"><label for="weather">天気</label><select id="weather"><option value="auto" selected>おまかせ（ときどき雨）</option><option value="sun">ずっと晴れ</option><option value="rain">ずっと雨</option></select></div>
+        <div class="field"><label for="noise">うっかりブレーキ</label><input type="range" id="noise" min="0" max="100" step="5" value="30"><output id="noiseOut">30%</output></div>
+        <p class="desc">ドライバーがときどき理由なくブレーキを踏む度合い。上げると、車が多いときに原因のない渋滞（自然渋滞）が後ろへ伝わっていきます。</p>
       </div>
 
       <div class="sec">
@@ -170,7 +191,7 @@ canvas#cv3{display:none}
         <div class="field"><label for="mult">交通量倍率</label><input type="range" id="mult" min="0" max="300" step="5" value="100"><output id="multOut">100%</output></div>
         <div class="field"><label for="truck">大型車混入率</label><input type="range" id="truck" min="0" max="50" step="1" value="12"><output id="truckOut">12%</output></div>
         <div class="field"><label for="gap">合流の車間</label><input type="range" id="gap" min="1" max="4" step="0.1" value="2.2"><output id="gapOut">2.2秒</output></div>
-        <p class="desc">OD表（流入口から流出口へ向かう台数／時）。倍率をかけた値で発生します。</p>
+        <p class="desc" id="odDesc">OD表（流入口から流出口へ向かう台数／時）。倍率をかけた値で発生します。</p>
         <div class="odwrap"><table class="od" id="odTable"></table></div>
       </div>
 
@@ -184,7 +205,7 @@ canvas#cv3{display:none}
         </div>
         <div class="row">
           <label for="drawKind">描く道路</label>
-          <select id="drawKind"><option value="auto" selected>おまかせ</option><option value="main">本線（優先）</option><option value="ramp">ランプ</option><option value="toll">料金所</option></select>
+          <select id="drawKind"><option value="auto" selected>おまかせ</option><option value="street">一般道（両方向）</option><option value="main">本線（優先）</option><option value="ramp">ランプ</option><option value="toll">料金所</option></select>
           <select id="drawSpeed" aria-label="描く道路の制限速度"></select>
         </div>
         <div class="row"><input type="checkbox" id="snap" checked><label for="snap">10mグリッドに吸着</label></div>
@@ -204,7 +225,7 @@ canvas#cv3{display:none}
 
       <div class="sec">
         <h2>表示</h2>
-        <div class="row"><label for="colorMode">車の色</label><select id="colorMode"><option value="dest">行き先別</option><option value="speed">速度別</option></select></div>
+        <div class="row"><label for="colorMode">車の色</label><select id="colorMode"><option value="dest">行き先別</option><option value="speed">速度別</option><option value="type">車の種類・性格別</option></select></div>
         <div class="row"><input type="checkbox" id="heat" checked><label for="heat">道路を渋滞度で色分け</label></div>
         <div class="row"><input type="checkbox" id="labels" checked><label for="labels">流入口・流出口の名前</label></div>
         <div class="legend"><span><i class="dot" style="background:var(--good)"></i>順調</span><span><i class="dot" style="background:var(--warn)"></i>混雑</span><span><i class="dot" style="background:var(--bad)"></i>渋滞</span></div>
@@ -228,6 +249,11 @@ canvas#cv3{display:none}
         <div id="statusPill"></div>
         <div class="sinks" id="sinkList"></div>
       </div>
+      <div class="follow" id="follow" aria-live="polite">
+        <span class="ttl" id="fwT"></span>
+        <span class="meta" id="fwM"></span>
+        <div class="row"><button id="fwNext">別の車にする</button><button id="fwStop">追うのをやめる</button><input type="checkbox" id="fwAuto" checked><label for="fwAuto" style="font-size:12px;color:var(--muted)">着いたら次の車へ</label></div>
+      </div>
       <div class="hint"><span id="hint"></span></div>
     </section>
   </div>
@@ -237,12 +263,30 @@ canvas#cv3{display:none}
 'use strict';
 const $ = s => document.querySelector(s);
 const KIND = {
+  street:{label:'一般道（両方向）', prio:1, speed:40, layer:-1},
   main:{label:'本線', prio:2, speed:100, layer:0},
   ramp:{label:'ランプ', prio:1, speed:60, layer:1},
   toll:{label:'料金所', prio:1, speed:20, layer:1},
 };
-const SPEEDS = [20,40,60,80,100,120];
+const SPEEDS = [20,30,40,50,60,80,100,120];
 const DEST_COLORS = ['#2f7fd6','#e0582b','#8a55c9','#1c9e8b','#d6a21e','#d1458a','#5c8f2b','#7b6650','#3b5bd9','#c46a1a'];
+// 行き止まりの先にある建物の種類。時間帯によって、出ていく車・向かってくる車の数が変わる
+const ZONES = {
+  home:{label:'家', color:'#3b82d6', fill:'#e3c7a4', h:[6,10]},
+  work:{label:'会社', color:'#e0702b', fill:'#9fb4cb', h:[22,60]},
+  shop:{label:'お店', color:'#c8458f', fill:'#e9b0c8', h:[7,11]},
+  edge:{label:'街の外', color:'#5f8f3a'},
+};
+const BLD = new Set(['home','work','shop']);
+// 車の種類・性格
+const TYPES = {
+  car:{label:'乗用車', color:'#7088a8'}, hasty:{label:'せっかちな車', color:'#e04a3a'}, calm:{label:'のんびりな車', color:'#3aa37a'},
+  truck:{label:'大型トラック', color:'#9a7650'}, bus:{label:'バス', color:'#e0a91c'},
+};
+const hsh = k => { const x = Math.sin(k*12.9898 + 78.233)*43758.5453; return x - Math.floor(x); };
+const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2*Math.PI; while (d < -Math.PI) d += 2*Math.PI; return d; };
+const turnOf = (i, o) => o ? angDiff(o.startAng, i.endAng) : 0;   // ＋なら右折、－なら左折（画面座標）
+const isBld = n => n.term && BLD.has(n.zone);
 
 /* ============ プリセット ============ */
 function makeBuilder(){
@@ -255,13 +299,23 @@ function makeBuilder(){
       x = R(x); y = R(y);
       const k = x+','+y;
       if (keyMap.has(k)){ const n = keyMap.get(k); Object.assign(n, o); return n; }
-      const n = {id:net.nextId++, x, y, name:o.name||'', leg:o.leg||'', vol:o.vol||0};
+      const n = {id:net.nextId++, x, y, name:o.name||'', leg:o.leg||'', vol:o.vol||0, zone:o.zone||''};
       keyMap.set(k, n); net.nodes.push(n); return n;
     },
     link(a, b, o = {}){
       const kind = o.kind || 'main';
       const l = {id:net.nextId++, from:a.id, to:b.id, wps:(o.wps||[]).map(p=>[R(p[0]),R(p[1])]), kind, speed:o.speed||KIND[kind].speed};
       net.links.push(l); return l;
+    },
+    // 一般道（両方向）：同じ形で向きが逆の道路を2本作り、対にする
+    street(a, b, o = {}){
+      const wps = (o.wps||[]).map(p=>[R(p[0]),R(p[1])]);
+      const speed = o.speed || (o.drv ? 20 : 40);
+      const l1 = {id:net.nextId++, from:a.id, to:b.id, wps, kind:'street', speed};
+      const l2 = {id:net.nextId++, from:b.id, to:a.id, wps:wps.slice().reverse().map(p=>[p[0],p[1]]), kind:'street', speed};
+      if (o.drv) l1.drv = l2.drv = true;
+      l1.pair = l2.id; l2.pair = l1.id;
+      net.links.push(l1, l2); return l1;
     },
     chain(list, o){ for (let i=0;i<list.length-1;i++) this.link(list[i], list[i+1], o); },
   };
@@ -377,7 +431,102 @@ function presetY(){
   return B.net;
 }
 
+// ランダムな街：ゆがんだ格子状の一般道（信号つき交差点）、道ぞいの家・会社・お店、街を横切る高速道路とIC
+function presetCity(){
+  const B = makeBuilder();
+  const rr = (a, b) => a + Math.random()*(b - a);
+  const cols = 5, rows = 4, sp = 230, hwRow = 1, icCol = 2;
+  const x0 = -(cols-1)*sp/2, y0 = -(rows-1)*sp/2;
+  const yH = y0 + (hwRow + 0.5)*sp;                 // 高速道路は hwRow 行目と次の行のあいだを東西に通る
+  const P = [];
+  for (let i=0;i<cols;i++){ P.push([]); for (let j=0;j<rows;j++){
+    const near = j === hwRow || j === hwRow+1;
+    P[i].push([x0 + i*sp + rr(-35,35), y0 + j*sp + (near ? rr(-15,15) : rr(-35,35))]);
+  }}
+  const E = [];
+  for (let i=0;i<cols;i++) for (let j=0;j<rows;j++){
+    if (i < cols-1) E.push({a:[i,j], b:[i+1,j], h:true});
+    if (j < rows-1) E.push({a:[i,j], b:[i,j+1], h:false, hw: j === hwRow});
+  }
+  // 格子から何本か抜いて、T字路や大回りが生まれるようにする（行き止まりと孤立は作らない）
+  const ok = () => {
+    const adj = {}, d = {};
+    for (const e of E) if (!e.off){ const a = e.a+'', b = e.b+''; (adj[a] = adj[a]||[]).push(b); (adj[b] = adj[b]||[]).push(a); d[a] = (d[a]||0)+1; d[b] = (d[b]||0)+1; }
+    if (Object.keys(d).length < cols*rows || Object.values(d).some(v => v < 2)) return false;
+    const seen = new Set(['0,0']), st = ['0,0'];
+    while (st.length){ const k = st.pop(); for (const m of adj[k]||[]) if (!seen.has(m)){ seen.add(m); st.push(m); } }
+    return seen.size === cols*rows;
+  };
+  const order = E.slice().sort(() => Math.random() - 0.5);
+  let removed = 0;
+  for (const e of order){
+    if (removed >= Math.round(E.length*0.2)) break;
+    if (e.hw && e.a[0] === icCol) continue;
+    e.off = true; if (ok()) removed++; else e.off = false;
+  }
+  const N = P.map(col => col.map(p => B.node(p[0], p[1])));
+  const Rmax = Math.hypot((cols-1)*sp/2, (rows-1)*sp/2);
+  const zoneAt = (x, y) => {
+    const d = Math.hypot(x, y)/Rmax, r = Math.random();
+    if (d < 0.38) return r < 0.6 ? 'work' : r < 0.85 ? 'shop' : 'home';
+    if (d < 0.7) return r < 0.5 ? 'home' : r < 0.8 ? 'shop' : 'work';
+    return r < 0.82 ? 'home' : 'shop';
+  };
+  for (const e of E){
+    if (e.off) continue;
+    const a = N[e.a[0]][e.a[1]], b = N[e.b[0]][e.b[1]];
+    if (e.hw){ B.street(a, b); continue; }           // 高速道路の下をくぐる道はまっすぐ
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy), nx = -dy/len, ny = dx/len;
+    const bend = Math.random() < 0.4 ? rr(18, 45) * (Math.random() < 0.5 ? -1 : 1) : 0;
+    const mx = (a.x + b.x)/2 + nx*bend, my = (a.y + b.y)/2 + ny*bend;
+    const m = B.node(mx, my);
+    const cx = 2*mx - (a.x + b.x)/2, cy = 2*my - (a.y + b.y)/2;   // 中点を通る2次曲線の制御点
+    const q = t => [(1-t)*(1-t)*a.x + 2*t*(1-t)*cx + t*t*b.x, (1-t)*(1-t)*a.y + 2*t*(1-t)*cy + t*t*b.y];
+    B.street(a, m, {wps: bend ? [q(0.25)] : []});
+    B.street(m, b, {wps: bend ? [q(0.75)] : []});
+    // 道ぞいの建物（高速道路の側には建てない）
+    const sides = e.h && e.a[1] === hwRow ? [-1] : e.h && e.a[1] === hwRow+1 ? [1] : [-1, 1];
+    for (const s of sides) if (Math.random() < 0.55){
+      const L = rr(28, 38);
+      const t = B.node(m.x + nx*s*L, m.y + ny*s*L, {zone:zoneAt(m.x, m.y)});
+      B.street(m, t, {drv:true});
+    }
+  }
+  // 街の外へつながる道
+  const DIRN = {W:['西',[-1,0]], E:['東',[1,0]], N:['北',[0,-1]], S:['南',[0,1]]};
+  const cand = [];
+  for (let i=0;i<cols;i++) for (let j=0;j<rows;j++){
+    if (i === 0) cand.push([i,j,'W']); if (i === cols-1) cand.push([i,j,'E']);
+    if (j === 0) cand.push([i,j,'N']); if (j === rows-1) cand.push([i,j,'S']);
+  }
+  cand.sort(() => Math.random() - 0.5);
+  const used = {};
+  cand.slice(0, 7).forEach(([i,j,k]) => {
+    const n = N[i][j], [nm, d] = DIRN[k];
+    used[k] = (used[k]||0) + 1;
+    const t = B.node(n.x + d[0]*170, n.y + d[1]*170, {zone:'edge', name:nm + '方面' + (used[k] > 1 ? used[k] : ''), vol:130});
+    B.street(n, t, {speed:50});
+  });
+  // 高速道路とダイヤモンド型IC（ランプの先は信号つき交差点）
+  const colX = i => (P[i][hwRow][0] + P[i][hwRow+1][0])/2;
+  const Xc = colX(icCol), Xl = (colX(icCol-1) + Xc)/2, Xr = (Xc + colX(icCol+1))/2;
+  const xW = x0 - 560, xE = x0 + (cols-1)*sp + 560;
+  const Pn = N[icCol][hwRow], Ps = N[icCol][hwRow+1];
+  const ebS = B.node(xW, yH-6, {name:'高速 西から', zone:'edge', vol:520}), ebE = B.node(xE, yH-6, {name:'高速 東へ', zone:'edge', vol:520});
+  const wbS = B.node(xE, yH+6, {name:'高速 東から', zone:'edge', vol:520}), wbE = B.node(xW, yH+6, {name:'高速 西へ', zone:'edge', vol:520});
+  const d1 = B.node(Xl, yH-6), m1 = B.node(Xr, yH-6), d2 = B.node(Xr, yH+6), m2 = B.node(Xl, yH+6);
+  B.chain([ebS, d1, m1, ebE], {kind:'main'});
+  B.chain([wbS, d2, m2, wbE], {kind:'main'});
+  B.link(d1, Pn, {kind:'ramp', speed:40, wps:[[Xl + (Xc-Xl)*0.55, yH-22], [Pn.x - 24, Pn.y + 45]]});
+  B.link(Pn, m1, {kind:'ramp', speed:40, wps:[[Pn.x + 24, Pn.y + 45], [Xc + (Xr-Xc)*0.45, yH-22]]});
+  B.link(d2, Ps, {kind:'ramp', speed:40, wps:[[Xc + (Xr-Xc)*0.45, yH+22], [Ps.x + 24, Ps.y - 45]]});
+  B.link(Ps, m2, {kind:'ramp', speed:40, wps:[[Ps.x - 24, Ps.y - 45], [Xl + (Xc-Xl)*0.55, yH+22]]});
+  return B.net;
+}
+
 const PRESETS = [
+  {key:'city', group:'街', name:'ランダムな街', make:presetCity,
+   desc:'選ぶたびに形が変わる街。信号つきの交差点、家・会社・お店、街を横切る高速道路があります。朝は家から会社へ、夕方は会社から家へと流れが変わります。'},
   {key:'trumpetIC', group:'IC', name:'トランペット型IC', make:()=>presetTrumpet(true),
    desc:'日本の高速道路で最も多いIC。ループ1本と半直結ランプで本線と一般道をつなぎ、料金所（20km/h）を通ります。'},
   {key:'diamond', group:'IC', name:'ダイヤモンド型IC', make:presetDiamond,
@@ -398,6 +547,8 @@ const S = {
   log:[], history:[], done:0, vid:1,
   mode:'view', sel:null, drawFrom:null, mouse:null, stroke:null,
   colorMode:'dest', heat:true, labels:true, view:'2d',
+  clock0:6.5*3600, dayCycle:true, weather:'auto', rainOn:false, rainUntil:0, rainK:0, noise:0.3,
+  rcache:{}, rcT:0, follow:null, followAuto:true, followLost:0,
 };
 let netVer = 0; // 道路網を作り直すたびに増やす（3D表示の作り直しの合図）
 let G = null; // 派生データ
@@ -445,15 +596,42 @@ function rebuild(){
   const nm = new Map(net.nodes.map(n => [n.id, n]));
   net.links = net.links.filter(l => nm.has(l.from) && nm.has(l.to) && l.from !== l.to);
   for (const n of net.nodes){ n.in = []; n.out = []; }
+  const lm = new Map(net.links.map(l => [l.id, l]));
   for (const l of net.links){
     l.fromN = nm.get(l.from); l.toN = nm.get(l.to);
     l.fromN.out.push(l); l.toN.in.push(l);
     buildGeom(l, nm);
     l.vehs = l.vehs || [];
+    if (l.cong == null) l.cong = 1;
+    l.pairL = l.pair != null ? lm.get(l.pair) || null : null;
+    if (l.pairL && l.pairL.pair !== l.id) l.pairL = null;
+    l.master = !l.pairL || l.id < l.pairL.id;           // 両方向の一般道は片方だけを描く
+    l.startAng = posAt(l, 0).ang; l.endAng = posAt(l, l.g.len).ang;
   }
-  const sources = net.nodes.filter(n => n.in.length===0 && n.out.length>0);
-  const sinks = net.nodes.filter(n => n.out.length===0 && n.in.length>0);
-  sinks.forEach((k,i) => k.color = DEST_COLORS[i % DEST_COLORS.length]);
+  // 両方向の道路の行き止まり（隣が1つだけ）は、車が出入りする場所（建物・街の外）になる
+  for (const n of net.nodes){
+    const nb = new Set(); n.in.forEach(l => nb.add(l.from)); n.out.forEach(l => nb.add(l.to));
+    n.term = nb.size === 1 && n.in.length > 0 && n.out.length > 0;
+  }
+  const sources = net.nodes.filter(n => (n.in.length===0 && n.out.length>0) || n.term);
+  const sinks = net.nodes.filter(n => (n.out.length===0 && n.in.length>0) || n.term);
+  let ci = 0;
+  sinks.forEach(k => k.color = isBld(k) ? ZONES[k.zone].color : DEST_COLORS[ci++ % DEST_COLORS.length]);
+  // 信号：一般道が3方向以上から集まる所に置く。向きの近い流入路どうしを同じ青にする
+  const sigs = [];
+  for (const n of net.nodes){
+    n.sig = null;
+    const major = new Set(), st = new Set();
+    for (const l of n.in) if (!l.drv){ major.add(l.from); if (l.kind === 'street') st.add(l.from); }
+    for (const l of n.out) if (!l.drv){ major.add(l.to); if (l.kind === 'street') st.add(l.to); }
+    if (major.size < 3 || st.size < 2) continue;
+    const app = n.in.filter(l => !l.drv);
+    const ref = app[0].endAng, ph = new Map();
+    for (const l of app) ph.set(l.id, Math.abs(Math.cos(l.endAng - ref)) >= 0.82 ? 0 : 1);
+    if (new Set(ph.values()).size < 2) continue;
+    n.sig = {ph, cur:Math.random() < 0.5 ? 0 : 1, st:'G', t:Math.random()*12, maxG:30 + hsh(n.id)*15};
+    sigs.push(n);
+  }
   // 経路（所要時間最小）
   const paths = {};
   for (const src of sources){
@@ -475,11 +653,17 @@ function rebuild(){
       paths[src.id+'>'+k.id] = {links:p, ff:dist.get(k.id)};
     }
   }
-  G = {nm, sources, sinks, paths};
+  // 建物や行き止まりがある設計では、行き先を時間帯と建物の種類で決める（OD表は使わない）
+  const zoneMode = sources.some(n => n.term || isBld(n));
+  const destOf = {};
+  for (const s of sources) destOf[s.id] = sinks.filter(k => k !== s && paths[s.id+'>'+k.id]);
+  G = {nm, sources, sinks, paths, sigs, zoneMode, destOf};
+  S.rcache = {};
   netVer++;
   // OD 初期値
   const od = net.od, valid = new Set(Object.keys(paths));
   for (const key of Object.keys(od)) if (!valid.has(key)) delete od[key];
+  if (zoneMode) return;
   const opp = {'東':'西','西':'東','北':'南','南':'北','北東':'西'};
   for (const src of sources){
     const reach = sinks.filter(k => paths[src.id+'>'+k.id]);
@@ -493,25 +677,120 @@ function rebuild(){
 }
 
 function resetSim(){
-  S.vehicles = []; S.time = 0; S.queues = {}; S.nextArr = {}; S.rateUsed = {};
-  S.log = []; S.history = []; S.done = 0;
-  if (S.net) for (const l of S.net.links) l.vehs = [];
+  S.vehicles = []; S.time = 0; S.queues = {}; S.nextArr = {}; S.rateUsed = {}; S.pend = {};
+  S.log = []; S.history = []; S.done = 0; S.rcache = {}; S.rcT = 0; S.follow = null;
+  if (S.net) for (const l of S.net.links){ l.vehs = []; l.cong = 1; }
+  if (typeof updateFollowCard === 'function') updateFollowCard();
 }
 
 /* ============ シミュレーション ============ */
 const S0 = 2.0;
-function prioOf(l){ return KIND[l.kind].prio; }
+function prioOf(l){ return l.drv ? 0 : KIND[l.kind].prio; }
 function etaOf(v, d){ return v.v > 1 ? d / v.v : Math.sqrt(2*Math.max(d,0.1)/v.a) + 0.6; }
 
-function mergeCheck(veh, inLink, node, dX){
+/* --- 時刻・天気・交通量の時間変化 --- */
+const hourNow = () => ((((S.clock0 + S.time) % 86400) + 86400) % 86400) / 3600;
+const bump = (h, c, w) => { let d = Math.abs(h - c); d = Math.min(d, 24 - d); return Math.exp(-d*d/(2*w*w)); };
+function dayProfile(h){ return 0.12 + 1.1*bump(h,8,1.4) + 0.95*bump(h,18,1.7) + 0.75*bump(h,13,3.5); }
+function daylight(h){ const t = Math.max(0, Math.min(1, (h - 4.8)/1.6, (19.2 - h)/1.6)); return t*t*(3 - 2*t); }
+// 建物から出ていく車の数（台/時）
+function prodRate(n, h){
+  switch (isBld(n) ? n.zone : 'edge'){
+    case 'home': return 8 + 72*bump(h,7.6,1.2) + 22*bump(h,13,3) + 14*bump(h,19.5,1.8);
+    case 'work': return 5 + 130*bump(h,17.8,1.3) + 20*bump(h,12.3,0.9);
+    case 'shop': return 4 + 45*bump(h,15,3.5);
+    default: return (n.vol || 150) * dayProfile(h);
+  }
+}
+// 行き先としての選ばれやすさ
+function attrW(n, h){
+  switch (isBld(n) ? n.zone : 'edge'){
+    case 'home': return 6 + 70*bump(h,18.5,1.8) + 10*bump(h,12,2);
+    case 'work': return 3 + 90*bump(h,7.8,1.2) + 12*bump(h,13,1);
+    case 'shop': return 5 + 40*bump(h,15,3.5);
+    default: return 25 * (n.vol || 150)/150 * dayProfile(h);
+  }
+}
+function pickDest(src, h){
+  const c = G.destOf[src.id]; if (!c || !c.length) return null;
+  let tot = 0;
+  const w = c.map(k => { let x = attrW(k, h); if (!src.term && !k.term) x *= 20; tot += x; return x; });  // 高速道路は通り抜けが多い
+  let r = rnd()*tot;
+  for (let i=0;i<c.length;i++){ r -= w[i]; if (r <= 0) return c[i]; }
+  return c[c.length-1];
+}
+function weatherTarget(){
+  if (S.weather === 'rain') return 1;
+  if (S.weather === 'sun') return 0;
+  const slot = Math.floor((S.clock0 + S.time)/1800);
+  if (slot !== S.wSlot){
+    S.wSlot = slot;
+    if (S.rainOn){ if (S.time > S.rainUntil) S.rainOn = false; }
+    else if (rnd() < 0.07){ S.rainOn = true; S.rainUntil = S.time + 3600*(0.8 + rnd()*2.2); }
+  }
+  return S.rainOn ? 1 : 0;
+}
+
+/* --- 信号 --- */
+// 青の方向に車が来なくなったら（最短8秒）、または最長の青時間で切り替える。黄3秒・全赤2秒
+function sigStep(dt){
+  for (const n of G.sigs){
+    const g = n.sig; g.t += dt;
+    if (g.st === 'G'){
+      if (g.t < 8) continue;
+      const dem = [0, 0];
+      for (const l of n.in){
+        const ph = g.ph.get(l.id); if (ph === undefined) continue;
+        for (let i = l.vehs.length-1; i >= 0; i--){ if (l.g.len - l.vehs[i].s > 70) break; dem[ph]++; }
+      }
+      if (!dem[1-g.cur]) continue;
+      if (!dem[g.cur] || g.t >= g.maxG){ g.st = 'Y'; g.t = 0; }
+    } else if (g.st === 'Y'){ if (g.t >= 3){ g.st = 'R'; g.t = 0; } }
+    else if (g.t >= 2){ g.cur = 1 - g.cur; g.st = 'G'; g.t = 0; }
+  }
+}
+// その流入路の車が信号で止められているか
+function sigHeld(Y, j, node){
+  const g = node.sig; if (!g) return false;
+  const ph = g.ph.get(j.id);
+  if (ph === undefined || Y.goSig === node.id) return false;
+  return !(g.cur === ph && g.st !== 'R');
+}
+// 自分が停止線で止まるべきか（黄色は止まれる距離なら止まる）
+function sigStop(veh, inL, node, dist){
+  const g = node.sig, ph = g.ph.get(inL.id);
+  if (ph === undefined || veh.goSig === node.id) return false;
+  if (g.cur === ph && g.st === 'G'){ if (dist < 6) veh.goSig = node.id; return false; }
+  if (g.cur === ph && g.st === 'Y' && (veh.v*veh.v/(2*Math.max(dist - 1.5, 0.1)) > 3.2 || veh.rtWait === node.id)){ veh.goSig = node.id; return false; }
+  return true;
+}
+
+function mergeCheck(veh, inLink, node, dX, outLink){
   if (veh.mergeGo === node.id) return null;
   const tX = etaOf(veh, dX), pX = prioOf(inLink);
+  const simple = node.out.length === 1;
+  const xRight = !simple && turnOf(inLink, outLink) > 0.5;
   let res = null;
   for (const j of node.in){
     if (j === inLink || !j.vehs.length) continue;
     const Y = j.vehs[j.vehs.length-1];
     const dY = j.g.len - Y.s;
     if (dY > 220) continue;
+    if (sigHeld(Y, j, node)) continue;
+    if (!simple){
+      // 交差点：同じ道へ入る車どうしは合流として譲り合う。右折は対向の直進・左折を待つ
+      const yOut = Y.path[Y.pi+1];
+      if (yOut !== outLink){
+        if (!(xRight && Math.abs(angDiff(j.endAng, inLink.endAng)) > 2.3 && turnOf(j, yOut) <= 0.5)) continue;
+        if (Y.v < 0.5 && (Y.stuck > 3 || Y.atRed)) continue;    // 対向車が渋滞・赤信号で止まっているなら右折してよい
+        const tY = etaOf(Y, dY);
+        if (tY > tX + S.gapT + 0.5 || dY > 120) continue;
+        const g = dX - 2;
+        if (!res || g < res.gap) res = {gap:g, vl:0};
+        if (dX < 15) veh.rtWait = node.id;
+        continue;
+      }
+    }
     const tY = etaOf(Y, dY), pY = prioOf(j);
     let yFirst;
     if (Y.mergeGo === node.id) yFirst = true;
@@ -530,28 +809,34 @@ function mergeCheck(veh, inLink, node, dX){
 
 function accel(veh){
   const path = veh.path, L = path[veh.pi];
-  const cap = veh.truck ? 85/3.6 : 999;
-  let v0 = Math.min(L.speed/3.6*veh.v0f, cap);
+  veh.atRed = false;
+  const wet = S.rainK, vf = veh.v0f*(1 - 0.15*wet), cap = veh.cap/3.6;   // 雨の日はゆっくり、車間も広め
+  let v0 = Math.min(L.speed/3.6*vf, cap);
+  if (veh.ghost > 0) return Math.max(-3, veh.a*(1 - Math.pow(veh.v/Math.min(v0, 7), 4)));  // 立ち往生の解消中
   let gap = Infinity, vl = 0;
   if (veh.idx < L.vehs.length-1){ const ld = L.vehs[veh.idx+1]; gap = ld.s - ld.len - veh.s; vl = ld.v; }
   let dist = L.g.len - veh.s;
   let mergeDone = false;
   for (let k = veh.pi+1; k < path.length && dist < 260; k++){
-    const N = path[k];
-    const vn = Math.min(N.speed/3.6*veh.v0f, cap);
+    const N = path[k], node = N.fromN;
+    const vn = Math.min(N.speed/3.6*vf, cap);
     v0 = Math.min(v0, Math.sqrt(vn*vn + 2*1.6*Math.max(0, dist)));
-    if (!mergeDone && N.fromN.in.length > 1){
-      mergeDone = true;
-      const c = mergeCheck(veh, path[k-1], N.fromN, dist);
+    if (node.sig && sigStop(veh, path[k-1], node, dist)){
+      if (dist - 1.5 < gap){ gap = dist - 1.5; vl = 0; veh.atRed = true; }   // 前の車ではなく信号で止まっている
+      break;
+    }
+    if (!mergeDone && node.in.length > 1){
+      const c = mergeCheck(veh, path[k-1], node, dist, N);
+      mergeDone = node.out.length === 1 || !!c;
       if (c && c.gap < gap){ gap = c.gap; vl = c.vl; }
     }
     if (gap === Infinity && N.vehs.length){ const ld = N.vehs[0]; gap = dist + ld.s - ld.len; vl = ld.v; }
     dist += N.g.len;
   }
-  const v = veh.v;
+  const v = veh.v, T = veh.T + 0.4*wet;
   let a = veh.a * (1 - Math.pow(v/Math.max(v0,0.1), 4));
   if (gap < Infinity){
-    const ss = S0 + Math.max(0, v*veh.T + v*(v-vl)/(2*Math.sqrt(veh.a*veh.b)));
+    const ss = S0 + Math.max(0, v*T + v*(v-vl)/(2*Math.sqrt(veh.a*veh.b)));
     a -= veh.a * Math.pow(ss/Math.max(gap, 0.2), 2);
   }
   return Math.max(-9, a);
@@ -560,19 +845,84 @@ function accel(veh){
 function rnd(){ return Math.random(); }
 function expRand(rate){ return -Math.log(1 - rnd()) / rate; }
 
-function spawnStep(){
-  const od = S.net.od;
-  for (const key in G.paths){
-    const q = (od[key] || 0) * S.mult;
-    const rate = q / 3600;
-    if (S.rateUsed[key] !== rate){
-      S.rateUsed[key] = rate;
-      S.nextArr[key] = rate > 0 ? S.time + expRand(rate) : Infinity;
+// 車の種類と性格（せっかちは車間が短く加速が強い、のんびりは遅めで車間が広い、ふらつきやすい）
+function makeDriver(onHw){
+  const r = rnd(), tr = S.truck * (onHw ? 1 : 0.4);
+  if (r < tr) return {type:'truck', len:12, v0f:1, a:0.7, b:1.6, T:1.7, cap:85, jit:0.5};
+  if (r < tr + (onHw ? 0.01 : 0.035)) return {type:'bus', len:11, v0f:0.92, a:0.8, b:1.7, T:1.6, cap:80, jit:0.5};
+  const q = rnd();
+  if (q < 0.17) return {type:'hasty', len:4.4, v0f:1.08 + rnd()*0.1, a:1.9 + rnd()*0.4, b:2.6, T:0.8 + rnd()*0.2, cap:999, jit:0.5};
+  if (q < 0.34) return {type:'calm', len:4.6, v0f:0.82 + rnd()*0.08, a:1.0 + rnd()*0.2, b:1.8, T:1.6 + rnd()*0.3, cap:999, jit:1.8};
+  return {type:'car', len:4.6, v0f:0.92 + rnd()*0.14, a:1.3 + rnd()*0.4, b:2.0, T:1.15 + rnd()*0.3, cap:999, jit:1};
+}
+// その時点の混み具合で最短時間の経路を選ぶ（20秒ごとに作り直す）。渋滞すると別の道へ逃げる車が出てくる
+// ban：出発点ですぐ引き返す（Uターンする）道路
+function routeTree(srcId, ban = null){
+  const ck = ban ? srcId + '|' + ban.id : srcId;
+  let prev = S.rcache[ck]; if (prev) return prev;
+  const dist = new Map([[srcId, 0]]), done = new Set(); prev = new Map();
+  while (true){
+    let best = null, bd = Infinity;
+    for (const [id, d] of dist) if (!done.has(id) && d < bd){ bd = d; best = id; }
+    if (best === null) break;
+    done.add(best);
+    for (const l of G.nm.get(best).out){
+      if (l === ban) continue;
+      const vf = l.speed/3.6, ve = Math.max(1.5, vf*Math.min(1, l.cong));
+      const full = l.occ > 0.5 ? 40 + 300*(l.occ - 0.5) : 0;     // 詰まっている道はなるべく避ける
+      const nd = bd + l.g.len/ve + (l.toN.sig ? 6 : 0) + full;
+      if (nd < (dist.get(l.to) ?? Infinity)){ dist.set(l.to, nd); prev.set(l.to, l); }
     }
-    while (S.nextArr[key] <= S.time){
-      const src = key.split('>')[0];
-      (S.queues[src] = S.queues[src] || []).length < 4000 && S.queues[src].push(key);
-      S.nextArr[key] += expRand(rate);
+  }
+  S.rcache[ck] = prev; return prev;
+}
+function pathTo(prev, s, k){
+  if (!prev.has(k)) return null;
+  const p = []; let cur = k, guard = 0;
+  while (cur !== s && guard++ < 5000){ const l = prev.get(cur); p.unshift(l); cur = l.from; }
+  return p;
+}
+// 走っている途中で、この先が詰まっていたら別の道を探す
+function reroute(v){
+  const L = v.path[v.pi];
+  let bad = false;
+  for (let k = v.pi+1; k < Math.min(v.path.length, v.pi+4); k++) if (v.path[k].occ > 0.6){ bad = true; break; }
+  if (!bad || L.toN.term || rnd() < 0.4) return;
+  const tail = pathTo(routeTree(L.to, L.pairL), L.to, v.sink);
+  if (tail && tail.length) v.path = v.path.slice(0, v.pi+1).concat(tail);
+}
+function routeOf(key){
+  const [s, k] = key.split('>').map(Number);
+  return pathTo(routeTree(s), s, k);
+}
+
+function spawnStep(){
+  const hq = S.dayCycle ? Math.floor(hourNow()*12)/12 : 10;   // 交通量は5分ごとに更新
+  if (G.zoneMode){
+    for (const src of G.sources){
+      const key = 'z' + src.id;
+      const rate = prodRate(src, hq) * S.mult / 3600;
+      if (S.rateUsed[key] !== rate){ S.rateUsed[key] = rate; S.nextArr[key] = rate > 0 ? S.time + expRand(rate) : Infinity; }
+      while (S.nextArr[key] <= S.time){
+        const dst = pickDest(src, hq);
+        const q = S.queues[src.id] = S.queues[src.id] || [];
+        if (dst && q.length < 4000) q.push(src.id + '>' + dst.id);
+        S.nextArr[key] += expRand(rate);
+      }
+    }
+  } else {
+    const od = S.net.od, dk = S.dayCycle ? dayProfile(hq) : 1;
+    for (const key in G.paths){
+      const rate = (od[key] || 0) * S.mult * dk / 3600;
+      if (S.rateUsed[key] !== rate){
+        S.rateUsed[key] = rate;
+        S.nextArr[key] = rate > 0 ? S.time + expRand(rate) : Infinity;
+      }
+      while (S.nextArr[key] <= S.time){
+        const src = key.split('>')[0];
+        (S.queues[src] = S.queues[src] || []).length < 4000 && S.queues[src].push(key);
+        S.nextArr[key] += expRand(rate);
+      }
     }
   }
   for (const src in S.queues){
@@ -580,24 +930,24 @@ function spawnStep(){
     if (!q.length) continue;
     const key = q[0], P = G.paths[key];
     if (!P){ q.shift(); continue; }
-    const L = P.links[0];
+    const links = routeOf(key) || P.links;
+    const L = links[0];
     const last = L.vehs[0];
-    const truck = rnd() < S.truck;
-    const len = truck ? 12 : 4.6;
-    const v0 = Math.min(L.speed/3.6, truck ? 85/3.6 : 99);
+    // 一般道が混みすぎたら街に入るのを待たせる（全部の道が詰まって動けなくなるのを防ぐ）
+    if (L.kind === 'street' && S.occ > 0.24 && rnd() < (S.occ - 0.24)/0.06) continue;
+    if (L.occ > 0.7 || (links[1] && links[1].occ > 0.75)) continue;
+    const d = S.pend[src] || (S.pend[src] = makeDriver(L.kind !== 'street'));
+    const v0 = Math.min(L.speed/3.6, d.cap/3.6);
     let v = v0;
     if (last){
       const gap = last.s - last.len;
       if (gap < S0 + 3) continue;
       v = Math.min(v0, last.v + 3, Math.max(0, (gap - S0) / 1.3));
     }
-    q.shift();
+    q.shift(); S.pend[src] = null;
     const veh = {
-      id:S.vid++, path:P.links, pi:0, s:0, v, len, truck, key, ff:P.ff,
-      sink:+key.split('>')[1], t0:S.time,
-      v0f: truck ? 1 : 0.92 + rnd()*0.18,
-      a: truck ? 0.7 : 1.3 + rnd()*0.4, b: truck ? 1.6 : 2.0, T: truck ? 1.7 : 1.15 + rnd()*0.3,
-      mergeGo:null, idx:0,
+      ...d, id:S.vid++, path:links, pi:0, s:0, v, key, ff:P.ff, truck: d.type === 'truck' || d.type === 'bus',
+      sink:+key.split('>')[1], src:+src, t0:S.time, mergeGo:null, idx:0,
     };
     S.vehicles.push(veh);
     L.vehs.unshift(veh);
@@ -606,25 +956,52 @@ function spawnStep(){
 
 function step(dt){
   S.time += dt;
+  if (S.time - S.rcT > 20 || S.time < S.rcT){ S.rcache = {}; S.rcT = S.time; }
+  S.rainK += (weatherTarget() - S.rainK) * Math.min(1, dt/240);
   spawnStep();
   for (const l of S.net.links) l.vehs.length = 0;
   for (const v of S.vehicles) v.path[v.pi].vehs.push(v);
   for (const l of S.net.links){ l.vehs.sort((a,b) => a.s - b.s); l.vehs.forEach((v,i) => v.idx = i); }
+  sigStep(dt);
+  // 一般道の混み具合（車が占めている長さ÷一般道の長さ）
+  { let occ = 0, len = 0;
+    for (const l of S.net.links){
+      let o = 0; for (const v of l.vehs) o += v.len + 2;
+      l.occ = o / l.g.len;
+      if (l.kind === 'street' && !l.drv){ len += l.g.len; occ += o; }
+    }
+    S.occ = len ? occ/len : 0; }
+  // 道路ごとの渋滞度（速度÷制限速度をならした値）。色分けと経路選びに使う
+  for (const l of S.net.links){
+    if (l.vehs.length){ let s = 0; for (const v of l.vehs) s += v.v; l.cong += (Math.min(1, s/l.vehs.length/(l.speed/3.6)) - l.cong) * Math.min(1, dt/12); }
+    else l.cong += (1 - l.cong) * Math.min(1, dt/40);
+  }
   const acc = S.vehicles.map(accel);
   const keep = [];
+  const nz = S.noise * 0.02;
   S.vehicles.forEach((v, i) => {
-    v.v = Math.max(0, v.v + acc[i]*dt);
+    let a = acc[i];
+    // うっかりブレーキ：ときどき理由もなく少し減速する。車が多いと後ろへ渋滞の波が伝わっていく
+    if (v.brk > 0){ v.brk -= dt; a = Math.min(a, -2.4); }
+    else if (nz > 0 && v.v > 6 && rnd() < dt*nz*v.jit) v.brk = 0.7 + rnd()*1.1;
+    v.v = Math.max(0, v.v + a*dt);
     v.s += v.v*dt;
+    if (v.v < 0.3 && !v.atRed) v.stuck = (v.stuck || 0) + dt; else v.stuck = 0;
+    // 2分以上まったく動けない車は、あきらめて近くの駐車場などへ消える（道が全部ふさがって止まり続けるのを防ぐ）
+    if (v.stuck > 120 && v.path[v.pi].kind === 'street'){ v.gone = true; v.gaveUp = true; S.gaveUp = (S.gaveUp || 0) + 1; }
     let L = v.path[v.pi];
-    while (v.s >= L.g.len){
+    while (!v.gone && v.s >= L.g.len){
       v.s -= L.g.len; v.pi++;
       if (v.pi >= v.path.length){ v.gone = true; break; }
       L = v.path[v.pi];
       if (v.mergeGo === L.from) v.mergeGo = null;
+      if (v.goSig === L.from) v.goSig = null;
+      if (v.rtWait === L.from) v.rtWait = null;
+      if (G.zoneMode) reroute(v);
     }
     if (v.gone){
-      S.done++;
-      S.log.push({t:S.time, sink:v.sink, tt:S.time - v.t0, ff:v.ff});
+      v.tEnd = S.time;
+      if (!v.gaveUp){ S.done++; S.log.push({t:S.time, sink:v.sink, tt:S.time - v.t0, ff:v.ff}); }
     } else keep.push(v);
   });
   S.vehicles = keep;
@@ -712,17 +1089,41 @@ function draw(){
       const [x,y] = toS(d.x,d.y); label(d.t, x, y, C.muted);
     }
   }
+  // 建物
+  drawBuildings(false);
   // 道路
   const rw = Math.max(3, 4.2*cam.s), cw = rw + Math.max(2, 1.6*cam.s);
+  const sw = Math.max(4, 7.5*cam.s), dw = Math.max(2.4, 4*cam.s);
+  {
+    // 一般道（両方向）：1本の太い道として描き、渋滞度は車線ごとに色をつける
+    const ls = net.links.filter(l => l.kind === 'street');
+    const ms = ls.filter(l => l.master);
+    ctx.strokeStyle = C.casing;
+    for (const l of ms){ ctx.lineWidth = (l.drv ? dw : sw) + Math.max(2, 1.4*cam.s); strokeLink(l); }
+    ctx.strokeStyle = C.road;
+    for (const l of ms){ ctx.lineWidth = l.drv ? dw : sw; strokeLink(l); }
+    if (cam.s > 0.45){
+      ctx.strokeStyle = C.mark; ctx.globalAlpha = 0.65; ctx.lineWidth = Math.max(1, 0.25*cam.s); ctx.setLineDash([3*cam.s, 3*cam.s]);
+      for (const l of ms) if (!l.drv) strokeLink(l);
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+    if (S.heat){
+      ctx.globalAlpha = 0.45;
+      for (const l of ls){
+        if (l.drv || (l.cong > 0.85 && !l.vehs.length)) continue;
+        ctx.strokeStyle = congestionColor(l.cong); ctx.lineWidth = Math.max(1.5, sw*0.16); strokeLinkOff(l, 3.1);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
   for (const layer of [0,1]){
     const ls = net.links.filter(l => KIND[l.kind].layer === layer);
     ctx.strokeStyle = C.casing; ctx.lineWidth = cw; ls.forEach(strokeLink);
     for (const l of ls){
       ctx.strokeStyle = C.road; ctx.lineWidth = rw; strokeLink(l);
       if (l.kind === 'toll'){ ctx.setLineDash([3,3]); ctx.strokeStyle = C.warn; ctx.lineWidth = rw*0.5; strokeLink(l); ctx.setLineDash([]); }
-      if (S.heat && l.vehs.length){
-        const r = l.vehs.reduce((a,v) => a + v.v, 0) / l.vehs.length / (l.speed/3.6);
-        ctx.strokeStyle = congestionColor(r); ctx.globalAlpha = 0.55; ctx.lineWidth = rw*0.55; strokeLink(l); ctx.globalAlpha = 1;
+      if (S.heat && (l.vehs.length || l.cong < 0.85)){
+        ctx.strokeStyle = congestionColor(l.cong); ctx.globalAlpha = 0.55; ctx.lineWidth = rw*0.55; strokeLink(l); ctx.globalAlpha = 1;
       }
     }
   }
@@ -731,6 +1132,7 @@ function draw(){
     ctx.strokeStyle = C.mark; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.2;
     const sp = 70;
     for (const l of net.links){
+      if (l.kind === 'street') continue;
       for (let s = sp/2; s < l.g.len; s += sp){
         const p = posAt(l, s); const [x,y] = toS(p.x,p.y);
         const r = Math.min(4, rw*0.45), c = Math.cos(p.ang), sn = Math.sin(p.ang);
@@ -741,29 +1143,127 @@ function draw(){
     }
     ctx.globalAlpha = 1;
   }
+  // 夜・雨の暗さ（車・信号・窓あかりはこの上に明るく描く）
+  const dark = 1 - daylight(hourNow());
+  const dim = 0.62*dark + 0.12*S.rainK;
+  if (dim > 0.01){ ctx.fillStyle = `rgba(6,10,30,${dim.toFixed(3)})`; ctx.fillRect(0,0,W,H); }
+  if (dark > 0.2) drawBuildings(true, dark);
   // 車両
-  const vw = Math.max(1, 2*cam.s);
+  const lights = dark > 0.25;
   for (const v of S.vehicles){
     const L = v.path[v.pi];
-    const p = posAt(L, v.s - v.len/2);
+    const p = vehPos(v);
     const [x,y] = toS(p.x,p.y);
-    if (x < -20 || y < -20 || x > W+20 || y > H+20) continue;
-    let col;
-    if (S.colorMode === 'speed') col = congestionColor(v.v / (L.speed/3.6));
-    else col = G.nm.get(v.sink)?.color || C.fg;
+    if (x < -30 || y < -30 || x > W+30 || y > H+30) continue;
     ctx.save(); ctx.translate(x,y); ctx.rotate(p.ang);
     const len = Math.max(v.truck ? 5 : 3, v.len*cam.s), wd = Math.max(v.truck ? 2.6 : 2, (v.truck?2.5:1.9)*cam.s);
-    ctx.fillStyle = col; ctx.fillRect(-len/2, -wd/2, len, wd);
+    if (lights){
+      const r = Math.max(10, 16*cam.s);
+      ctx.fillStyle = `rgba(255,232,160,${(0.28*dark).toFixed(3)})`;
+      ctx.beginPath(); ctx.moveTo(len/2, -wd*0.3); ctx.lineTo(len/2 + r, -wd*0.3 - r*0.32); ctx.lineTo(len/2 + r, wd*0.3 + r*0.32); ctx.lineTo(len/2, wd*0.3); ctx.fill();
+    }
+    ctx.fillStyle = vehColor(v, L); ctx.fillRect(-len/2, -wd/2, len, wd);
     if (v.truck && cam.s > 0.8){ ctx.fillStyle = C.casing; ctx.globalAlpha = .35; ctx.fillRect(len/2 - len*0.22, -wd/2, len*0.22, wd); ctx.globalAlpha = 1; }
+    if (lights || v.brk > 0 || (v.v < 2 && cam.s > 0.9)){
+      ctx.fillStyle = '#ff2a1f'; const t = Math.max(0.8, 0.5*cam.s);
+      ctx.fillRect(-len/2 - t*0.3, -wd/2, t, wd*0.3); ctx.fillRect(-len/2 - t*0.3, wd/2 - wd*0.3, t, wd*0.3);
+    }
     ctx.restore();
   }
+  drawSignals();
+  drawFollowMark();
   drawEditOverlay(rw);
-  // ラベル
+  // ラベル（建物にはつけない。両方向の行き止まりは1つだけ）
   if (S.labels){
-    for (const n of G.sources) nodeLabel(n, n.out[0], true);
-    for (const n of G.sinks) nodeLabel(n, n.in[0], false);
+    for (const n of G.sources) if (!isBld(n)) nodeLabel(n, n.out[0], true);
+    for (const n of G.sinks) if (!n.term) nodeLabel(n, n.in[0], false);
   }
+  drawRain();
   if (!net.links.length) emptyMessage();
+}
+// 車の表示位置。一般道では進行方向の左側の車線を走る
+function vehPos(v){
+  const L = v.path[v.pi], p = posAt(L, v.s - v.len/2);
+  if (L.kind === 'street'){ const o = L.drv ? 1.1 : 1.9; p.x += Math.sin(p.ang)*o; p.y -= Math.cos(p.ang)*o; }
+  return p;
+}
+function vehColor(v, L){
+  if (S.colorMode === 'speed') return congestionColor(v.v / (L.speed/3.6));
+  if (S.colorMode === 'type') return TYPES[v.type]?.color || C.fg;
+  return G.nm.get(v.sink)?.color || C.fg;
+}
+// 道路を進行方向の左へ off m ずらしてなぞる
+function strokeLinkOff(l, off){
+  const p = l.g.pts, n = p.length;
+  ctx.beginPath();
+  for (let i=0;i<n;i++){
+    const a = p[Math.max(0,i-1)], b = p[Math.min(n-1,i+1)];
+    let dx = b[0]-a[0], dy = b[1]-a[1]; const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+    const [x,y] = toS(p[i][0] + dy*off, p[i][1] - dx*off, hOf(l,i));
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  }
+  ctx.stroke();
+}
+// 行き止まりの先の建物（形は位置から決まる）
+function bldOf(n){
+  if (!isBld(n) || !n.out[0]) return null;
+  const z = ZONES[n.zone], r = hsh(n.id), ang = n.out[0].startAng + Math.PI;
+  const w = n.zone === 'work' ? 22 + r*8 : n.zone === 'shop' ? 28 + r*8 : 12 + r*4;
+  const d = n.zone === 'work' ? 20 + r*6 : n.zone === 'shop' ? 18 + r*4 : 11 + r*3;
+  const c = Math.cos(ang), s = Math.sin(ang), off = 3 + d/2;
+  return {x:n.x + c*off, y:n.y + s*off, ang, w, d, h:z.h[0] + (z.h[1]-z.h[0])*hsh(n.id + 7), zone:n.zone};
+}
+function bldPath(b){
+  const c = Math.cos(b.ang), s = Math.sin(b.ang), hd = b.d/2, hw = b.w/2;
+  ctx.beginPath();
+  [[hd,hw],[hd,-hw],[-hd,-hw],[-hd,hw]].forEach(([u,v],i) => { const [x,y] = toS(b.x + c*u - s*v, b.y + s*u + c*v); i ? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
+  ctx.closePath();
+}
+function drawBuildings(lit, dark){
+  for (const n of S.net.nodes){
+    const b = bldOf(n); if (!b) continue;
+    if (!lit){
+      bldPath(b); ctx.fillStyle = ZONES[b.zone].fill; ctx.fill();
+      ctx.strokeStyle = C.casing; ctx.globalAlpha = 0.5; ctx.lineWidth = 1; ctx.stroke(); ctx.globalAlpha = 1;
+      if (cam.s > 0.9){
+        const [x,y] = toS(b.x, b.y);
+        ctx.fillStyle = '#18221d'; ctx.globalAlpha = 0.55; ctx.font = `${Math.round(Math.min(14, 5*cam.s))}px ` + getComputedStyle(document.body).fontFamily;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ZONES[b.zone].label, x, y); ctx.globalAlpha = 1;
+      }
+    } else {
+      // 夜は窓あかり（建物ごとに少しずつ違う）
+      const k = 0.35 + 0.65*hsh(n.id + Math.floor(hourNow()));
+      bldPath({...b, w:b.w*0.7, d:b.d*0.7}); ctx.fillStyle = `rgba(255,205,110,${(0.55*dark*k).toFixed(3)})`; ctx.fill();
+    }
+  }
+}
+// 信号の灯火（停止線の左側）
+function drawSignals(){
+  if (!G.sigs.length || pxm() < 0.22) return;
+  const r = Math.max(2.2, Math.min(5, 1.3*pxm()));
+  for (const n of G.sigs){
+    const g = n.sig;
+    for (const l of n.in){
+      const ph = g.ph.get(l.id); if (ph === undefined) continue;
+      const s = Math.max(0, l.g.len - 6), p = posAt(l, s);
+      const [x,y] = toS(p.x + Math.sin(p.ang)*4.6, p.y - Math.cos(p.ang)*4.6, hAt(l, s)[0]);
+      const col = g.cur === ph ? (g.st === 'G' ? '#22d36a' : g.st === 'Y' ? '#ffc21a' : '#ff3b30') : '#ff3b30';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fillStyle = col; ctx.fill();
+      ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.stroke();
+    }
+  }
+}
+// 雨のすじ
+function drawRain(){
+  const k = S.rainK; if (k < 0.03) return;
+  const t = performance.now()/1000, n = Math.round(220*k*Math.min(1.5, W*H/600000));
+  ctx.strokeStyle = `rgba(185,205,235,${(0.45*k).toFixed(3)})`; ctx.lineWidth = 1; ctx.beginPath();
+  for (let i=0;i<n;i++){
+    const x = hsh(i)*W*1.1, sp = 0.9 + hsh(i+0.5)*0.6;
+    const y = ((hsh(i+0.25) + t*sp*1.4) % 1) * (H + 30) - 15;
+    ctx.moveTo(x - (y/H)*W*0.04, y); ctx.lineTo(x - (y/H)*W*0.04 - 3, y + 14);
+  }
+  ctx.stroke();
 }
 function emptyMessage(){
   ctx.fillStyle = C.muted; ctx.font = '15px ' + getComputedStyle(document.body).fontFamily; ctx.textAlign = 'center';
@@ -843,14 +1343,87 @@ function nodeLabelAt(n, x, y, ang, isSrc){
   // 進行方向の外側へ28px、進行方向の左へ14pxずらす（同じ地点の流入・流出ラベルが重ならないように）
   const c = Math.cos(p.ang), s = Math.sin(p.ang);
   const ox = c*dir*28 + s*14, oy = s*dir*28 - c*14;
-  const t = (isSrc ? '▶ ' : '■ ') + nodeName(n);
-  if (!isSrc && n.color){ ctx.fillStyle = n.color; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill(); }
-  label(t, x+ox, y+oy, isSrc ? C.accent : (n.color || C['label-fg']));
+  const t = (n.term ? '⇄ ' : isSrc ? '▶ ' : '■ ') + nodeName(n);
+  if ((!isSrc || n.term) && n.color){ ctx.fillStyle = n.color; ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill(); }
+  label(t, x+ox, y+oy, isSrc && !n.term ? C.accent : (n.color || C['label-fg']));
 }
 function nodeName(n){
   if (n.name) return n.name;
+  if (n.term) return (ZONES[n.zone] || ZONES.edge).label + n.id;
   const isSrc = n.in.length===0;
   return (isSrc ? '流入口' : '流出口') + n.id;
+}
+
+/* ============ 車を追いかける ============ */
+function vehScreen(v){ const p = vehPos(v), L = v.path[v.pi]; return toS(p.x, p.y, hAt(L, v.s - v.len/2)[0]); }
+function pickVehicleAt(sx, sy){
+  let best = null, bd = 18;
+  for (const v of S.vehicles){ const [x,y] = vehScreen(v); const d = Math.hypot(x-sx, y-sy); if (d < bd){ bd = d; best = v; } }
+  return best;
+}
+function jumpTo(x, y, h = 0, near = 0){
+  camTouched = true;
+  if (is3D()){
+    const c = V3.camera, t = V3.controls.target;
+    const dir = c.position.clone().sub(t), len = dir.length() || 1;
+    if (near) dir.multiplyScalar(Math.min(len, near)/len);
+    t.set(x, h, y); c.position.copy(t).add(dir);
+  } else { cam.x = x; cam.y = y; if (near) cam.s = Math.max(cam.s, 1.6); }
+}
+function startFollow(v){
+  S.follow = v; S.followLost = 0;
+  const p = vehPos(v);
+  jumpTo(p.x, p.y, hAt(v.path[v.pi], v.s)[0], 170);
+  updateFollowCard();
+}
+function stopFollow(){ S.follow = null; updateFollowCard(); }
+function followRandom(){
+  const c = S.vehicles.filter(v => v.path.length - v.pi > 2);
+  const pool = c.length ? c : S.vehicles;
+  if (!pool.length){ $('#hint').textContent = 'まだ走っている車がいません。少し待ってからもう一度押してください'; return; }
+  startFollow(pool[Math.floor(rnd()*pool.length)]);
+}
+function followTick(){
+  const v = S.follow; if (!v) return;
+  if (v.gone){
+    if (++S.followLost > 90){ if (S.followAuto && S.vehicles.length) followRandom(); else stopFollow(); }
+    return;
+  }
+  const p = vehPos(v), h = hAt(v.path[v.pi], v.s - v.len/2)[0];
+  if (is3D()){
+    const t = V3.controls.target, c = V3.camera.position;
+    const dx = (p.x - t.x)*0.15, dy = (h - t.y)*0.15, dz = (p.y - t.z)*0.15;
+    t.x += dx; t.y += dy; t.z += dz; c.x += dx; c.y += dy; c.z += dz;
+  } else { cam.x += (p.x - cam.x)*0.15; cam.y += (p.y - cam.y)*0.15; }
+}
+function drawFollowMark(){
+  const v = S.follow; if (!v || v.gone) return;
+  ctx.strokeStyle = C.sel; ctx.globalAlpha = 0.55; ctx.lineWidth = 3; ctx.setLineDash([8,6]);
+  for (let k = v.pi; k < v.path.length; k++) strokeLink(v.path[k]);
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+  const dst = G.nm.get(v.sink);
+  if (dst){ const [x,y] = toS(dst.x, dst.y, dst.h || 0); ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI*2); ctx.fillStyle = C.sel; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = C.casing; ctx.stroke(); }
+  const [x,y] = vehScreen(v), r = 12 + Math.sin(performance.now()/250)*2;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.lineWidth = 2.5; ctx.strokeStyle = C.sel; ctx.stroke();
+}
+function fmtDur(t){ t = Math.max(0, Math.round(t)); return t >= 60 ? `${Math.floor(t/60)}分${String(t%60).padStart(2,'0')}秒` : `${t}秒`; }
+function updateFollowCard(){
+  const box = $('#follow'); if (!box) return;
+  const v = S.follow;
+  box.classList.toggle('on', !!v);
+  if (!v) return;
+  const src = G.nm.get(v.src), dst = G.nm.get(v.sink);
+  let st;
+  if (v.gone) st = v.gaveUp ? '渋滞にうんざりして、近くの駐車場に入りました' : '到着しました';
+  else if (v.atRed) st = v.v < 0.5 ? '信号待ち' : '赤信号で減速中';
+  else if (v.rtWait != null && v.v < 1) st = '右折待ち';
+  else if (v.brk > 0) st = 'うっかりブレーキ';
+  else if (v.v < 1.5) st = '渋滞で止まっている';
+  else if (v.v < v.path[v.pi].speed/3.6*0.5) st = 'のろのろ運転';
+  else st = '順調';
+  const late = (v.gone ? v.tEnd : S.time) - v.t0;
+  $('#fwT').textContent = `${TYPES[v.type]?.label || '車'}：${src ? nodeName(src) : '?'} → ${dst ? nodeName(dst) : '?'}`;
+  $('#fwM').textContent = `${v.gone ? '–' : Math.round(v.v*3.6)} km/h ・ ${st} ・ 出発から ${fmtDur(late)}`;
 }
 
 /* スパークライン */
@@ -898,20 +1471,44 @@ function updateStats(){
   const pill = $('#statusPill');
   if (!G.sources.length) pill.innerHTML = '';
   else if (wq >= 25) pill.innerHTML = `<span class="pill bad">渋滞：${esc(nodeName(G.nm.get(+worst)))}で${wq}台が流入待ち</span>`;
-  else if (wq >= 6 || (vs != null && vs < 40)) pill.innerHTML = `<span class="pill warn">混雑気味：${worst && wq ? esc(nodeName(G.nm.get(+worst)))+'で流入待ち' : '速度が低下'}</span>`;
+  else if (wq >= 6 || (n >= 10 && S.vehicles.reduce((a,v) => a + v.v/(v.path[v.pi].speed/3.6), 0)/n < 0.45)) pill.innerHTML = `<span class="pill warn">混雑気味：${worst && wq ? esc(nodeName(G.nm.get(+worst)))+'で流入待ち' : '速度が低下'}</span>`;
   else pill.innerHTML = `<span class="pill">順調に流れています</span>`;
-  // 流出口別
+  // いちばん詰まっている所（押すとそこへ移動）
+  let wl = null;
+  for (const l of S.net.links) if (l.vehs.length >= 3 && l.cong < 0.4 && (!wl || l.cong < wl.cong)) wl = l;
+  S.spot = wl;
+  if (wl){
+    const where = wl.toN.sig ? '信号の手前' : wl.toN.in.length > 1 ? '合流の手前' : wl.kind === 'toll' ? '料金所' : '道路上';
+    pill.innerHTML += `<span class="pill link" id="spotPill" role="button" tabindex="0">渋滞スポット（${where}）を見る</span>`;
+  }
+  // 流出口別（建物がある設計では、建物の種類ごとにまとめる）
   const by = {};
   recent.forEach(e => by[e.sink] = (by[e.sink]||0) + 1);
+  if (G.zoneMode){
+    const agg = {};
+    for (const k of G.sinks){ const z = isBld(k) ? k.zone : 'edge'; agg[z] = (agg[z]||0) + (by[k.id]||0); }
+    $('#sinkList').innerHTML = Object.keys(ZONES).filter(z => agg[z] != null).map(z =>
+      `<div><span><i class="dot" style="background:${ZONES[z].color}"></i>${ZONES[z].label}へ</span><b>${Math.round(agg[z]*3600/win)} 台/時</b></div>`).join('');
+  } else
   $('#sinkList').innerHTML = G.sinks.map(k =>
     `<div><span><i class="dot" style="background:${k.color}"></i>${esc(nodeName(k))}</span><b>${Math.round((by[k.id]||0)*3600/win)} 台/時</b></div>`).join('');
   drawSpark();
 }
 function fmtTime(t){ t = Math.floor(t); const h = Math.floor(t/3600), m = Math.floor(t%3600/60), s = t%60; return [h,m,s].map(v => String(v).padStart(2,'0')).join(':'); }
+function clockText(){
+  const t = S.clock0 + S.time, day = Math.floor(t/86400) + 1, h = hourNow();
+  const icon = S.rainK > 0.5 ? '☂' : daylight(h) < 0.5 ? '☾' : '☀';
+  return `<small>${day}日目</small>${String(Math.floor(h)).padStart(2,'0')}:${String(Math.floor(h*60)%60).padStart(2,'0')}<small>${icon}</small>`;
+}
+$('#statusPill').addEventListener('click', e => {
+  if (!e.target.closest('#spotPill') || !S.spot) return;
+  const l = S.spot, s = Math.max(0, l.g.len - 40), p = posAt(l, s);
+  stopFollow(); jumpTo(p.x, p.y, hAt(l, s)[0], 260);
+});
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 /* ============ ループ ============ */
-let lastT = performance.now();
+let lastT = performance.now(), lastClock = '';
 function frame(now){
   const real = Math.min(0.05, (now - lastT)/1000); lastT = now;
   if (S.running && S.net && !drag){
@@ -919,9 +1516,10 @@ function frame(now){
     const n = Math.max(1, Math.ceil(simDt / 0.1));
     for (let i=0;i<n;i++) step(simDt/n);
   }
+  followTick();
   draw();
   if (++statTick % 15 === 0) updateStats();
-  $('#clock').textContent = fmtTime(S.time);
+  if (statTick % 6 === 0){ updateFollowCard(); const ct = clockText(); if (ct !== lastClock){ $('#clock').innerHTML = ct; lastClock = ct; } }
   requestAnimationFrame(frame);
 }
 
@@ -929,8 +1527,8 @@ function frame(now){
 function renderPresetSel(){
   const my = loadMy();
   let h = '';
-  for (const g of ['IC','JCT']){
-    h += `<optgroup label="${g === 'IC' ? 'インターチェンジ (IC)' : 'ジャンクション (JCT)'}">`;
+  for (const g of ['街','IC','JCT']){
+    h += `<optgroup label="${g === '街' ? '街' : g === 'IC' ? 'インターチェンジ (IC)' : 'ジャンクション (JCT)'}">`;
     PRESETS.filter(p => p.group === g).forEach(p => h += `<option value="p:${p.key}">${p.name}</option>`);
     h += '</optgroup>';
   }
@@ -954,17 +1552,23 @@ function loadNet(net, key, label){
 }
 function serialize(){
   const n = S.net;
-  return {nodes:n.nodes.map(({id,x,y,name,leg,vol}) => ({id,x,y,name,leg,vol})),
-    links:n.links.map(({id,from,to,wps,kind,speed}) => ({id,from,to,wps,kind,speed})),
+  return {nodes:n.nodes.map(({id,x,y,name,leg,vol,zone}) => ({id,x,y,name,leg,vol,zone})),
+    links:n.links.map(({id,from,to,wps,kind,speed,pair,drv}) => ({id,from,to,wps,kind,speed,pair,drv})),
     od:n.od, deco:n.deco, nextId:n.nextId};
 }
 function commitEdit(){
   if (S.presetKey !== 'cur'){ S.presetKey = 'cur'; }
+  autoJunctions();
   rebuild(); resetSim(); renderOD(); renderProps(); syncPresetSel(); autosave();
 }
 
 function renderOD(){
   const t = $('#odTable');
+  $('#odDesc').textContent = G.zoneMode
+    ? '家・会社・お店や行き止まりの道がある設計では、行き先は建物の種類と時間帯で自動で決まります（朝は家から会社へ、夕方は会社から家へ）。倍率で全体の量を変えられます。'
+    : 'OD表（流入口から流出口へ向かう台数／時）。倍率をかけた値で発生します。';
+  t.parentElement.style.display = G.zoneMode ? 'none' : '';
+  if (G.zoneMode){ t.innerHTML = ''; return; }
   if (!G.sources.length || !G.sinks.length){ t.innerHTML = '<tbody><tr><td class="na" style="padding:12px">流入口と流出口がまだありません</td></tr></tbody>'; return; }
   let h = '<thead><tr><th>流入 ＼ 流出</th>';
   G.sinks.forEach(k => h += `<th><i class="dot" style="background:${k.color}"></i>${esc(nodeName(k))}</th>`);
@@ -998,7 +1602,7 @@ function renderProps(){
     const tips = {
       view:'マップをドラッグで移動、ホイール（2本指）で拡大縮小。',
       select:'ノードや道路をクリックして選択。ノード・曲線ハンドルはドラッグで移動。道路をダブルクリックで曲線ハンドルを追加。',
-      draw:'マップをなぞると、その線がそのまま道路になります（描いた向きが進行方向）。既存の道路から描き始めると分岐、既存の道路で描き終えると合流になり、自動でなめらかにつながります。制限速度もカーブに合わせて自動で決まります。',
+      draw:'マップをなぞると、その線がそのまま道路になります。「おまかせ」では一般道（両方向）になり、一般道どうしが交わると自動で信号つきの交差点に、何にもつながっていない端には家・会社・お店が建ちます。高速道路につなぐとランプ（一方通行・描いた向きが進行方向）になり、高速道路と交わる所は立体交差になります。',
       erase:'消したいノードや道路をクリックします。',
     };
     box.innerHTML = `<span class="ttl">ヒント</span><span class="desc">${tips[S.mode]}</span>`;
@@ -1006,8 +1610,19 @@ function renderProps(){
   }
   if (sel.type === 'link'){
     const l = S.net.links.find(l => l.id === sel.id); if (!l){ S.sel = null; return renderProps(); }
+    if (l.kind === 'street'){
+      const p = l.pairL;
+      box.innerHTML = `<span class="ttl">${l.drv ? '建物への道' : '一般道（両方向）'} #${l.id}（${Math.round(l.g.len)} m）</span>
+        <div class="row"><label for="pSpeed">制限速度</label><select id="pSpeed">${speedOptions(l.speed)}</select></div>
+        <div class="row"><button id="pStraight">直線に戻す</button><button id="pDel" class="danger">削除</button></div>
+        <span class="desc" style="font-size:12px">一般道どうしが交わると、自動で信号つきの交差点になります。</span>`;
+      $('#pSpeed').onchange = e => { l.speed = +e.target.value; if (p) p.speed = l.speed; commitEdit(); };
+      $('#pStraight').onclick = () => { l.wps = []; if (p) p.wps = []; commitEdit(); };
+      $('#pDel').onclick = () => deleteLink(l.id);
+      return;
+    }
     box.innerHTML = `<span class="ttl">道路 #${l.id}（${Math.round(l.g.len)} m）</span>
-      <div class="row"><label for="pKind">種別</label><select id="pKind">${Object.entries(KIND).map(([k,v]) => `<option value="${k}"${k===l.kind?' selected':''}>${v.label}${k==='main'?'（合流で優先）':''}</option>`).join('')}</select></div>
+      <div class="row"><label for="pKind">種別</label><select id="pKind">${Object.entries(KIND).filter(([k]) => k !== 'street').map(([k,v]) => `<option value="${k}"${k===l.kind?' selected':''}>${v.label}${k==='main'?'（合流で優先）':''}</option>`).join('')}</select></div>
       <div class="row"><label for="pSpeed">制限速度</label><select id="pSpeed">${speedOptions(l.speed)}</select></div>
       <div class="row"><button id="pRev">向きを反転</button><button id="pStraight">直線に戻す</button><button id="pDel" class="danger">削除</button></div>`;
     $('#pKind').onchange = e => { l.kind = e.target.value; l.speed = KIND[l.kind].speed; commitEdit(); };
@@ -1017,22 +1632,24 @@ function renderProps(){
     $('#pDel').onclick = () => { deleteLink(l.id); };
   } else {
     const n = G.nm.get(sel.id); if (!n){ S.sel = null; return renderProps(); }
-    const kind = n.in.length===0 && n.out.length>0 ? '流入口' : n.out.length===0 && n.in.length>0 ? '流出口' : n.in.length>1 ? '合流点' : n.out.length>1 ? '分岐点' : '通過点';
+    const kind = n.term ? '行き止まり（出入口）' : n.in.length===0 && n.out.length>0 ? '流入口' : n.out.length===0 && n.in.length>0 ? '流出口' : n.sig ? '信号つき交差点' : n.in.length>1 ? '合流点' : n.out.length>1 ? '分岐点' : '通過点';
     const named = kind === '流入口' || kind === '流出口';
     box.innerHTML = `<span class="ttl">${kind} #${n.id}</span>
+      ${n.term ? `<div class="row"><label for="pZone">ここにあるもの</label><select id="pZone">${Object.entries(ZONES).map(([k,v]) => `<option value="${k}"${(n.zone||'edge')===k?' selected':''}>${v.label}</option>`).join('')}</select></div>
+      ${!isBld(n) ? `<div class="row"><label for="pName">名前</label><input type="text" id="pName" value="${esc(n.name)}" placeholder="${esc(nodeName(n))}" style="flex:1"></div>` : ''}` : ''}
       ${named ? `<div class="row"><label for="pName">名前</label><input type="text" id="pName" value="${esc(n.name)}" placeholder="${esc(nodeName(n))}" style="flex:1"></div>
       <div class="row"><label for="pLeg">方面</label><input type="text" id="pLeg" value="${esc(n.leg)}" placeholder="例：東" style="width:80px"><span class="desc" style="font-size:12px">同じ方面どうし（Uターン）は初期交通量0</span></div>` : ''}
       <div class="row"><button id="pDel" class="danger">ノードを削除</button></div>`;
-    if (named){
-      $('#pName').onchange = e => { n.name = e.target.value.trim(); renderOD(); autosave(); };
-      $('#pLeg').onchange = e => { n.leg = e.target.value.trim(); autosave(); };
-    }
+    if (n.term) $('#pZone').onchange = e => { n.zone = e.target.value; rebuild(); resetSim(); renderOD(); renderProps(); autosave(); };
+    if ($('#pName')) $('#pName').onchange = e => { n.name = e.target.value.trim(); renderOD(); autosave(); };
+    if (named) $('#pLeg').onchange = e => { n.leg = e.target.value.trim(); autosave(); };
     $('#pDel').onclick = () => deleteNode(n.id);
   }
 }
 
 function deleteLink(id){
-  S.net.links = S.net.links.filter(l => l.id !== id);
+  const l = S.net.links.find(l => l.id === id), pid = l && l.pair;   // 両方向の一般道は2本まとめて消す
+  S.net.links = S.net.links.filter(l => l.id !== id && !(pid != null && l.id === pid));
   pruneNodes(); S.sel = null; commitEdit();
 }
 function deleteNode(id){
@@ -1123,6 +1740,34 @@ $('#gap').oninput = e => { S.gapT = +e.target.value; $('#gapOut').textContent = 
 $('#colorMode').onchange = e => S.colorMode = e.target.value;
 $('#heat').onchange = e => S.heat = e.target.checked;
 $('#labels').onchange = e => S.labels = e.target.checked;
+$('#dayCycle').onchange = e => { S.dayCycle = e.target.checked; S.rateUsed = {}; };
+$('#hourChips').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  // 今日のその時刻へ（過ぎていれば次の日へ）進める
+  const t = S.clock0 + S.time, base = Math.floor(t/86400)*86400;
+  let at = base + (+b.dataset.h)*3600; if (at < t) at += 86400;
+  S.clock0 += at - t; S.rateUsed = {};
+});
+$('#weather').onchange = e => { S.weather = e.target.value; if (S.weather !== 'auto') S.rainOn = false; };
+$('#noise').oninput = e => { S.noise = +e.target.value/100; $('#noiseOut').textContent = e.target.value + '%'; };
+$('#btnNewCity').onclick = () => { const p = PRESETS.find(p => p.key === 'city'); loadNet(p.make(), 'p:city', p.name); };
+$('#btnFollow').onclick = followRandom;
+$('#fwNext').onclick = followRandom;
+$('#fwStop').onclick = stopFollow;
+$('#fwAuto').onchange = e => S.followAuto = e.target.checked;
+// 観察モードで車をタップすると、その車を追いかける
+let tapStart = null;
+for (const c of [cv, cv3]){
+  c.addEventListener('pointerdown', e => { tapStart = e.button === 0 ? {x:e.clientX, y:e.clientY, t:performance.now()} : null; });
+  c.addEventListener('pointerup', e => {
+    const s = tapStart; tapStart = null;
+    if (!s || S.mode !== 'view' || e.button !== 0) return;
+    if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 6 || performance.now() - s.t > 450) return;
+    const r = cv.getBoundingClientRect();
+    const v = pickVehicleAt(e.clientX - r.left, e.clientY - r.top);
+    if (v) startFollow(v);
+  });
+}
 $('#drawSpeed').innerHTML = '<option value="auto" selected>速度おまかせ</option>' + speedOptions(0);
 $('#drawKind').onchange = e => { if (e.target.value === 'toll') $('#drawSpeed').value = 20; };
 
@@ -1131,7 +1776,7 @@ function setMode(m){
   if (m === 'view') S.sel = null;
   $('#tools').querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m));
   cv.style.cursor = cv3.style.cursor = m === 'draw' ? 'crosshair' : m === 'erase' ? 'not-allowed' : 'grab';
-  const hints = {view:'観察モード：ドラッグで移動・ホイールで拡大', select:'選択モード：クリックで選択／ドラッグで移動／道路をダブルクリックで曲線ハンドル追加',
+  const hints = {view:'観察モード：ドラッグで移動・ホイールで拡大・車をタップで追いかける（F）', select:'選択モード：クリックで選択／ドラッグで移動／道路をダブルクリックで曲線ハンドル追加',
     draw:'描画モード：なぞって道路を描く（既存の道路から描き始めると分岐、既存の道路で終えると合流）', erase:'削除モード：ノードや道路をクリックで削除'};
   $('#hint').textContent = S.view === '3d' ? HINT3D[m] : hints[m];
   if (V3.ready) orbitButtons();
@@ -1167,14 +1812,73 @@ function wpAt(sx, sy){
 }
 function snapW(x, y){ return $('#snap').checked ? [Math.round(x/10)*10, Math.round(y/10)*10] : [Math.round(x*10)/10, Math.round(y*10)/10]; }
 function newNode(x, y){ const n = {id:S.net.nextId++, x, y, name:'', leg:'', vol:0}; S.net.nodes.push(n); return n; }
-function splitLink(hit){
-  const l = hit.link;
-  const segIdx = l.g.seg[hit.i];
-  const n = newNode(Math.round(hit.pt[0]*10)/10, Math.round(hit.pt[1]*10)/10);
+// 道路 l を、形の上の i 番目の点のところでノード n に分ける（後半の道路を返す）
+function splitLinkAt(l, i, n){
+  const segIdx = l.g.seg[Math.min(i, l.g.seg.length-1)];
   const l2 = {id:S.net.nextId++, from:n.id, to:l.to, wps:l.wps.slice(segIdx), kind:l.kind, speed:l.speed};
+  if (l.drv) l2.drv = true;
   l.wps = l.wps.slice(0, segIdx); l.to = n.id;
   S.net.links.push(l2);
+  return l2;
+}
+function nearestIdx(l, x, y){
+  const p = l.g.pts; let bi = 0, bd = Infinity;
+  for (let i=0;i<p.length-1;i++){ const d = (p[i][0]-x)**2 + (p[i][1]-y)**2; if (d < bd){ bd = d; bi = i; } }
+  return bi;
+}
+// 道路をノード n の位置で分ける。両方向の一般道なら反対向きの道路も同じ所で分け、対を付け直す
+function splitAtNode(l, n){
+  const nm = new Map(S.net.nodes.map(x => [x.id, x]));
+  buildGeom(l, nm);
+  const l2 = splitLinkAt(l, nearestIdx(l, n.x, n.y), n);
+  const p = l.pair != null ? S.net.links.find(x => x.id === l.pair) : null;
+  if (p){
+    // l: A→n, l2: n→B。反対向き p: B→A を p: B→n と p2: n→A に分ける
+    const p2 = {id:S.net.nextId++, from:n.id, to:p.to, wps:l.wps.slice().reverse().map(q => [q[0], q[1]]), kind:p.kind, speed:p.speed};
+    if (p.drv) p2.drv = true;
+    p.to = n.id; p.wps = l2.wps.slice().reverse().map(q => [q[0], q[1]]);
+    S.net.links.push(p2);
+    l.pair = p2.id; p2.pair = l.id; l2.pair = p.id; p.pair = l2.id;
+  }
+  return l2;
+}
+function splitLink(hit){
+  const n = newNode(Math.round(hit.pt[0]*10)/10, Math.round(hit.pt[1]*10)/10);
+  splitAtNode(hit.link, n);
   return n;
+}
+// 一般道どうしが交わっている所に、自動で交差点（共通のノード）を作る。高速道路との交差は立体交差のまま
+function autoJunctions(){
+  for (let iter = 0; iter < 300; iter++){
+    const nm = new Map(S.net.nodes.map(n => [n.id, n]));
+    const ls = S.net.links.filter(l => l.kind === 'street' && nm.has(l.from) && nm.has(l.to));
+    const lm = new Map(ls.map(l => [l.id, l]));
+    const ms = ls.filter(l => !(l.pair != null && lm.has(l.pair) && l.pair < l.id));
+    const items = ms.map(l => {
+      buildGeom(l, nm);
+      const P = l.g.pts.filter((_, i) => i % 2 === 0 || i === l.g.pts.length-1);
+      let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+      for (const p of P){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); }
+      return {l, P, bb:[x0-1,y0-1,x1+1,y1+1]};
+    });
+    let hit = null;
+    outer: for (let i=0;i<items.length;i++) for (let j=i+1;j<items.length;j++){
+      const A = items[i], B = items[j];
+      if (A.bb[2] < B.bb[0] || B.bb[2] < A.bb[0] || A.bb[3] < B.bb[1] || B.bb[3] < A.bb[1]) continue;
+      const shared = [A.l.from, A.l.to].filter(id => id === B.l.from || id === B.l.to).map(id => nm.get(id));
+      for (let a=0;a<A.P.length-1;a++) for (let b=0;b<B.P.length-1;b++){
+        const r = segCross(A.P[a], A.P[a+1], B.P[b], B.P[b+1]);
+        if (!r || r.sin < 0.17) continue;
+        const x = A.P[a][0] + (A.P[a+1][0]-A.P[a][0])*r.t, y = A.P[a][1] + (A.P[a+1][1]-A.P[a][1])*r.t;
+        if (shared.some(n => Math.hypot(n.x-x, n.y-y) < 14)) continue;
+        hit = {A:A.l, B:B.l, x, y}; break outer;
+      }
+    }
+    if (!hit) return;
+    const ends = [hit.A.from, hit.A.to, hit.B.from, hit.B.to].map(id => nm.get(id)).filter(n => Math.hypot(n.x-hit.x, n.y-hit.y) < 10);
+    const node = ends[0] || newNode(Math.round(hit.x*10)/10, Math.round(hit.y*10)/10);
+    for (const l of [hit.A, hit.B]) if (l.from !== node.id && l.to !== node.id) splitAtNode(l, node);
+  }
 }
 
 let drag = null;
@@ -1343,26 +2047,45 @@ function finishStroke(stroke){
   if (tb) wps = [...wps.filter(p => Math.hypot(p[0]-b[0], p[1]-b[1]) > k*2.2), tb];
   wps = wps.map(p => [Math.round(p[0]*10)/10, Math.round(p[1]*10)/10]);
   // 種類と速度
-  let kind = $('#drawKind').value;
-  if (kind === 'auto') kind = (A.attached || B.attached) ? 'ramp' : 'main';
+  // おまかせ：高速道路につなぐならランプ、それ以外は一般道（両方向）
+  const kind = pickKind(A, B);
   const l = {id:S.net.nextId++, from:A.n.id, to:B.n.id, wps, kind, speed:KIND[kind].speed};
   S.net.links.push(l);
   const spSel = $('#drawSpeed').value;
   if (spSel === 'auto'){
     buildGeom(l, new Map(S.net.nodes.map(n => [n.id, n])));
-    l.speed = kind === 'toll' ? 20 : autoSpeed(l, kind === 'main' ? 100 : 80);
+    l.speed = kind === 'toll' ? 20 : autoSpeed(l, kind === 'main' ? 100 : kind === 'street' ? 50 : 80);
   } else l.speed = +spSel;
+  addPairIfStreet(l, A, B);
   pruneNodes(); commitEdit();
   S.sel = {type:'link', id:l.id}; renderProps();
 }
+const onHwRoad = r => r.attached && [...(r.n.in||[]), ...(r.n.out||[])].some(x => x.kind !== 'street');
+function pickKind(A, B){
+  const k = $('#drawKind').value;
+  return k !== 'auto' ? k : (onHwRoad(A) || onHwRoad(B)) ? 'ramp' : 'street';
+}
+function randomZone(){ const r = Math.random(); return r < 0.55 ? 'home' : r < 0.8 ? 'shop' : 'work'; }
+// 一般道なら反対向きの道路も作る。何にもつながっていない端には建物を建てる
+function addPairIfStreet(l, A, B){
+  if (l.kind !== 'street') return;
+  const p = {id:S.net.nextId++, from:l.to, to:l.from, wps:l.wps.slice().reverse().map(q => [q[0], q[1]]), kind:'street', speed:l.speed};
+  l.pair = p.id; p.pair = l.id; S.net.links.push(p);
+  for (const r of [A, B]) if (r && !r.attached && !r.n.zone) r.n.zone = randomZone();
+}
 // タップ（なぞらずに押しただけ）：従来どおり点をつないで直線の道路を延ばす
 function tapDraw(sx, sy){
-  const target = resolveEnd(sx, sy).n;
+  const T = resolveEnd(sx, sy), target = T.n;
   if (S.drawFrom && S.drawFrom !== target.id){
-    let kind = $('#drawKind').value; if (kind === 'auto') kind = 'ramp';
+    const F = {n:G.nm.get(S.drawFrom) || S.net.nodes.find(n => n.id === S.drawFrom), attached:true};
+    const kind = pickKind(F, T);
     const spSel = $('#drawSpeed').value;
     const exists = S.net.links.some(l => l.from === S.drawFrom && l.to === target.id);
-    if (!exists) S.net.links.push({id:S.net.nextId++, from:S.drawFrom, to:target.id, wps:[], kind, speed: spSel === 'auto' ? KIND[kind].speed : +spSel});
+    if (!exists){
+      const l = {id:S.net.nextId++, from:S.drawFrom, to:target.id, wps:[], kind, speed: spSel === 'auto' ? KIND[kind].speed : +spSel};
+      S.net.links.push(l);
+      addPairIfStreet(l, null, T);
+    }
   }
   S.drawFrom = target.id;
   pruneNodes(); commitEdit();
@@ -1383,6 +2106,7 @@ function onPointerMove(e){
     const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2;
     cam.x = drag.c[0] - (mx - W/2)/cam.s; cam.y = drag.c[1] - (my - H/2)/cam.s;
   } else if (drag.type === 'pan'){
+    if (S.follow && Math.hypot(sx - drag.sx, sy - drag.sy) > 8) stopFollow();
     cam.x = drag.cx - (sx - drag.sx)/cam.s; cam.y = drag.cy - (sy - drag.sy)/cam.s;
   } else if (drag.type === 'node'){
     const [wx,wy] = snapW(...toW(sx, sy)); drag.n.x = wx; drag.n.y = wy; drag.moved = true;
@@ -1391,6 +2115,7 @@ function onPointerMove(e){
   } else if (drag.type === 'wp'){
     const [wx,wy] = toW(sx, sy); drag.link.wps[drag.i] = [Math.round(wx), Math.round(wy)]; drag.moved = true;
     buildGeom(drag.link, G.nm);
+    const pl = syncPair(drag.link); if (pl) buildGeom(pl, G.nm);
     if (is3D()) netVer++;
   }
 }
@@ -1407,13 +2132,21 @@ function onDblClick(e){
   if (S.mode !== 'select') return;
   const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
   const w = wpAt(sx, sy);
-  if (w){ w.link.wps.splice(w.i, 1); commitEdit(); return; }
+  if (w){ w.link.wps.splice(w.i, 1); syncPair(w.link); commitEdit(); return; }
   const h = linkAt(sx, sy);
   if (h){
     const l = h.link, segIdx = l.g.seg[h.i];
     l.wps.splice(segIdx, 0, [Math.round(h.pt[0]), Math.round(h.pt[1])]);
+    syncPair(l);
     S.sel = {type:'link', id:l.id}; commitEdit();
   }
+}
+// 両方向の一般道の形をそろえる（反対向きの道路を返す）
+function syncPair(l){
+  if (l.pair == null) return null;
+  const p = S.net.links.find(x => x.id === l.pair); if (!p) return null;
+  p.wps = l.wps.slice().reverse().map(q => [q[0], q[1]]);
+  return p;
 }
 cv.addEventListener('wheel', e => {
   e.preventDefault();
@@ -1425,7 +2158,8 @@ cv.addEventListener('wheel', e => {
 window.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea,select')) return;
   if (e.key === ' '){ e.preventDefault(); togglePlay(); }
-  else if (e.key === 'Escape'){ S.stroke = null; if (S.drawFrom) endChain(); else { S.sel = null; renderProps(); } }
+  else if (e.key === 'Escape'){ S.stroke = null; if (S.follow) stopFollow(); else if (S.drawFrom) endChain(); else { S.sel = null; renderProps(); } }
+  else if (e.key.toLowerCase() === 'f') followRandom();
   else if (e.key === 'Delete' || e.key === 'Backspace'){ if (S.sel && S.mode !== 'view'){ S.sel.type === 'link' ? deleteLink(S.sel.id) : deleteNode(S.sel.id); } }
   else if (e.key === '2' || e.key === '3') setView(e.key + 'd');
   else { const m = {v:'view', s:'select', r:'draw', d:'erase'}[e.key.toLowerCase()]; if (m) setMode(m); }
@@ -1435,7 +2169,7 @@ window.addEventListener('keydown', e => {
 // three.js は3Dを選んだときだけ読み込む（vendor/three-bundle.js）。シミュレーション自体は2Dのまま、見た目だけ立体にする。
 const LS_VIEW = 'jctsim.view.v1';
 const HINT3D = {
-  view:'3D表示：ドラッグで回転／右ドラッグ・2本指で移動／ホイール・ピンチで拡大',
+  view:'3D表示：ドラッグで回転／右ドラッグ・2本指で移動／ホイール・ピンチで拡大／車をタップで追いかける',
   select:'3D・選択モード：クリックで選択／ドラッグで移動。視点は右ドラッグ・2本指で移動（Shift＋右ドラッグで回転）',
   draw:'3D・描画モード：地面をなぞって道路を描く。視点は右ドラッグ・2本指で移動（Shift＋右ドラッグで回転）',
   erase:'3D・削除モード：ノードや道路をクリックで削除。視点は右ドラッグ・2本指で移動',
@@ -1508,6 +2242,10 @@ function init3D(){
     local: new T.MeshLambertMaterial({side:T.DoubleSide, polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1}),
     veh: new T.MeshLambertMaterial(),
     grid: new T.LineBasicMaterial(),
+    mark: new T.LineBasicMaterial({color:0xffffff, transparent:true, opacity:0.7}),
+    lampH: new T.MeshLambertMaterial({color:0x000000, emissive:0xfff1c4}),
+    lampT: new T.MeshLambertMaterial({color:0x000000, emissive:0xff2a1f}),
+    bld: Object.fromEntries([...BLD].map(z => [z, new T.MeshLambertMaterial({color:ZONES[z].fill})])),
   };
   Object.assign(V3, {T, renderer, scene, camera, controls, hemi, sun, ground, mats,
     vehGeo:new T.BoxGeometry(1, 1, 1), pierGeo:new T.CylinderGeometry(0.8, 0.8, 1, 10),
@@ -1529,7 +2267,24 @@ function theme3D(){
   mats.local.color.set(C.local);
   mats.grid.color.set(C.ground).lerp(new T.Color(C.fg), dark ? 0.025 : 0.09);
   hemi.intensity = dark ? 0.8 : 1.7; sun.intensity = dark ? 0.9 : 2.0;
+  V3.base = {bg, ground:new T.Color(C.ground), hemi:hemi.intensity, sun:sun.intensity, night:new T.Color('#070b1c'), tmp:new T.Color()};
   V3.roadCol = new T.Color(C.road); V3.tollCol = new T.Color(C.road).lerp(new T.Color(C.warn), 0.45);
+}
+// 時刻と天気に合わせて、空の色・明るさ・太陽の位置・窓あかりを変える
+function env3D(){
+  const {scene, ground, hemi, sun, mats, base} = V3, h = hourNow(), day = daylight(h), wet = S.rainK;
+  const nightK = (1 - day)*0.88 + wet*0.25;
+  scene.background.copy(base.bg).lerp(base.night, Math.min(1, nightK));
+  if (wet > 0.01) scene.background.lerp(base.tmp.set('#7d8794'), wet*0.25*day);
+  scene.fog.color.copy(scene.background);
+  ground.material.color.copy(base.ground).lerp(base.night, Math.min(0.85, (1 - day)*0.8));
+  hemi.intensity = base.hemi * (0.22 + 0.78*day) * (1 - 0.3*wet);
+  sun.intensity = base.sun * day * (1 - 0.65*wet);
+  const bb = V3.bb; if (!bb) return;
+  const th = (h - 6)/12*Math.PI, D = bb.R*3;
+  sun.position.set(bb.cx + Math.cos(th)*D*0.8, Math.max(0.12, Math.sin(th))*D*0.85, bb.cy + 0.45*D);
+  const glow = Math.max(0, 1 - day - 0.15);
+  for (const z of BLD) mats.bld[z].emissive.setRGB(0.55*glow, 0.4*glow, 0.15*glow);
 }
 
 /* --- 立体交差の検出と高さ --- */
@@ -1562,6 +2317,7 @@ function findCrossings(){
   const items = [];
   const bbox = P => { let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity; for (const p of P){ x0=Math.min(x0,p[0]); y0=Math.min(y0,p[1]); x1=Math.max(x1,p[0]); y1=Math.max(y1,p[1]); } return [x0-1,y0-1,x1+1,y1+1]; };
   for (const l of S.net.links){
+    if (!l.master) continue;                                     // 両方向の一般道は片方だけで判定
     const p = l.g.pts, c = l.g.cum, P = [], Cm = [];
     for (let i=0;i<p.length;i+=2){ P.push(p[i]); Cm.push(c[i]); }
     if ((p.length-1) % 2){ P.push(p[p.length-1]); Cm.push(c[c.length-1]); }
@@ -1572,6 +2328,7 @@ function findCrossings(){
   for (let i=0;i<items.length;i++) for (let j=i+1;j<items.length;j++){
     const A = items[i], B = items[j];
     if (A.deco && B.deco) continue;
+    if (!A.deco && !B.deco && A.l.kind === 'street' && B.l.kind === 'street') continue;   // 一般道どうしは平面交差
     if (A.bb[2] < B.bb[0] || B.bb[2] < A.bb[0] || A.bb[3] < B.bb[1] || B.bb[3] < A.bb[1]) continue;
     const shared = (!A.deco && !B.deco) ? [A.l.from, A.l.to].filter(id => id === B.l.from || id === B.l.to).map(id => G.nm.get(id)) : [];
     const found = [];
@@ -1667,7 +2424,7 @@ function build3D(){
   const {T, scene, mats, sun, ground} = V3;
   if (V3.net){
     scene.remove(V3.net);
-    V3.net.traverse(o => { if (o.geometry && o.geometry !== V3.pierGeo) o.geometry.dispose(); if (o.userData.ownMat) o.material.dispose(); });
+    V3.net.traverse(o => { if (o.geometry && o.geometry !== V3.pierGeo && o.geometry !== V3.vehGeo) o.geometry.dispose(); if (o.userData.ownMat) o.material.dispose(); });
   }
   V3.ver = netVer;
   const g = V3.net = new T.Group(); scene.add(g);
@@ -1686,10 +2443,17 @@ function build3D(){
   V3.core = isFinite(c0) ? {cx:(c0+c1)/2, cy:(d0+d1)/2, R:Math.max(c1-c0, d1-d0, 200)/2 + 60} : bb;
   computeHeights();
   // 道路
-  const piers = [];
+  const piers = [], marks = [];
   for (const l of net.links){
-    const {top, side} = deckGeom(l.g.pts, l.h, H3.ROAD_W, H3.TOP, true);
-    const off = l.kind === 'main' ? 0 : l.kind === 'ramp' ? -1 : -2;   // 合流部で重なる路面のちらつきを防ぐ
+    l.mat3 = null;
+    if (!l.master) continue;
+    const st = l.kind === 'street';
+    const {top, side} = deckGeom(l.g.pts, l.h, st ? (l.drv ? 4.2 : 7.5) : H3.ROAD_W, H3.TOP, true);
+    if (st && !l.drv){   // センターラインの破線
+      const p = l.g.pts;
+      for (let i=0;i+1<p.length;i+=2) marks.push(p[i][0], hOf(l,i) + H3.TOP + 0.04, p[i][1], p[i+1][0], hOf(l,i+1) + H3.TOP + 0.04, p[i+1][1]);
+    }
+    const off = l.kind === 'main' ? 0 : l.kind === 'ramp' ? -1 : l.kind === 'toll' ? -2 : l.drv ? 2 : 1;   // 合流部で重なる路面のちらつきを防ぐ
     const mat = new T.MeshLambertMaterial({side:T.DoubleSide, polygonOffset:off !== 0, polygonOffsetFactor:off, polygonOffsetUnits:off*4});
     const m = new T.Mesh(top, mat); m.userData.ownMat = true; m.castShadow = m.receiveShadow = true; g.add(m);
     l.mat3 = mat;
@@ -1705,6 +2469,14 @@ function build3D(){
     const pm = new T.InstancedMesh(V3.pierGeo, mats.side, piers.length);
     piers.forEach(([x, z, h], i) => { V3.o.position.set(x, h/2, z); V3.o.rotation.set(0, 0, 0); V3.o.scale.set(1, h, 1); V3.o.updateMatrix(); pm.setMatrixAt(i, V3.o.matrix); });
     pm.castShadow = true; pm.receiveShadow = true; pm.frustumCulled = false; g.add(pm);
+  }
+  if (marks.length){ const mg = new T.BufferGeometry(); mg.setAttribute('position', new T.Float32BufferAttribute(marks, 3)); g.add(new T.LineSegments(mg, mats.mark)); }
+  // 建物
+  for (const n of net.nodes){
+    const b = bldOf(n); if (!b) continue;
+    const m = new T.Mesh(V3.vehGeo, mats.bld[b.zone]);
+    m.position.set(b.x, b.h/2, b.y); m.rotation.set(0, -b.ang, 0); m.scale.set(b.d, b.h, b.w);
+    m.castShadow = m.receiveShadow = true; g.add(m);
   }
   // 一般道・料金所
   for (const d of net.deco){
@@ -1746,7 +2518,6 @@ function fit3D(){
 }
 
 /* --- 毎フレームの描画 --- */
-function vehColor(v, L){ return S.colorMode === 'speed' ? congestionColor(v.v / (L.speed/3.6)) : (G.nm.get(v.sink)?.color || C.fg); }
 function draw3D(){
   ctx.clearRect(0, 0, W, H);
   if (!W || !H) return;
@@ -1761,15 +2532,15 @@ function draw3D(){
   controls.update();
   const dist = camera.position.distanceTo(controls.target);
   camera.near = Math.max(0.5, dist*0.01); camera.far = Math.max(dist*12, V3.bb.R*20); camera.updateProjectionMatrix();
-  // 路面の色（渋滞度）
+  env3D();
+  // 路面の色（渋滞度。両方向の一般道は混んでいる方の向きで）
   for (const l of S.net.links){
     if (!l.mat3) continue;
     const base = l.kind === 'toll' ? V3.tollCol : V3.roadCol;
     l.mat3.color.copy(base);
-    if (S.heat && l.vehs.length){
-      const r = l.vehs.reduce((a, v) => a + v.v, 0) / l.vehs.length / (l.speed/3.6);
-      l.mat3.color.lerp(col3(congestionColor(r)), 0.55);
-    }
+    const r = l.pairL ? Math.min(l.cong, l.pairL.cong) : l.cong;
+    const busy = l.vehs.length || (l.pairL && l.pairL.vehs.length);
+    if (S.heat && !l.drv && (busy || r < 0.85)) l.mat3.color.lerp(col3(congestionColor(r)), 0.55);
   }
   // 車両（遠くから見ても分かるよう、引くほど少し大きく描く）
   const n = S.vehicles.length;
@@ -1780,23 +2551,46 @@ function draw3D(){
     m.instanceMatrix.setUsage(T.DynamicDrawUsage); m.setColorAt(0, col3('#ffffff')); m.frustumCulled = false;
     scene.add(m);
   }
-  const k = Math.max(1, Math.min(3, dist/450)), o = V3.o, vm = V3.veh;
+  // 夜のライト（前は黄白、後ろは赤）
+  const night = 1 - daylight(hourNow()), useLamp = night > 0.3;
+  if (!V3.lampH || V3.lampCap < V3.vehCap){
+    for (const m of [V3.lampH, V3.lampT]) if (m){ scene.remove(m); m.dispose(); }
+    V3.lampCap = V3.vehCap;
+    for (const [key, mat] of [['lampH', V3.mats.lampH], ['lampT', V3.mats.lampT]]){
+      const m = V3[key] = new T.InstancedMesh(V3.vehGeo, mat, V3.lampCap);
+      m.instanceMatrix.setUsage(T.DynamicDrawUsage); m.frustumCulled = false; scene.add(m);
+    }
+  }
+  const k = Math.max(1, Math.min(3, dist/450)), o = V3.o, vm = V3.veh, LM = {h:V3.lampH, t:V3.lampT}, cnt = {h:0, t:0};
   let i = 0;
   for (const v of S.vehicles){
     const L = v.path[v.pi], s = v.s - v.len/2;
-    const p = posAt(L, s), [h, dh] = hAt(L, s);
-    const ht = (v.truck ? 3.2 : 1.5)*k;
+    const p = vehPos(v), [h, dh] = hAt(L, s);
+    const ht = (v.truck ? 3.2 : 1.5)*k, ln = v.len*0.92*k, wd = (v.truck ? 2.5 : 1.9)*Math.min(k, 2);
     o.position.set(p.x, h + H3.TOP + ht/2, p.y);
     o.rotation.set(0, -p.ang, Math.atan(dh), 'YZX');
-    o.scale.set(v.len*0.92*k, ht, (v.truck ? 2.5 : 1.9)*Math.min(k, 2));
+    o.scale.set(ln, ht, wd);
     o.updateMatrix(); vm.setMatrixAt(i, o.matrix);
     vm.setColorAt(i, col3(vehColor(v, L)));
     i++;
+    if (useLamp || v.brk > 0){
+      const c = Math.cos(p.ang), sn = Math.sin(p.ang);
+      for (const [f, key] of useLamp ? [[1, 'h'], [-1, 't']] : [[-1, 't']]){
+        const d = ln/2 + 0.15*k;
+        o.position.set(p.x + c*d*f, h + H3.TOP + ht*0.35, p.y + sn*d*f);
+        o.scale.set(0.3*k, ht*0.25, wd*0.9);
+        o.updateMatrix(); LM[key].setMatrixAt(cnt[key]++, o.matrix);
+      }
+    }
   }
   vm.count = i; vm.instanceMatrix.needsUpdate = true; if (vm.instanceColor) vm.instanceColor.needsUpdate = true;
+  for (const key of ['h', 't']){ LM[key].count = cnt[key]; LM[key].instanceMatrix.needsUpdate = true; }
   renderer.render(scene, camera);
+  drawSignals();
+  drawFollowMark();
   drawEditOverlay(Math.max(3, H3.ROAD_W*pxm()));
   labels3D();
+  drawRain();
 }
 function toS3(x, y, h){
   const v = V3.v.set(x, h + H3.TOP, y).project(V3.camera);
@@ -1833,8 +2627,8 @@ function labels3D(){
     const ang = isSrc ? Math.atan2(b[1]-a[1], b[0]-a[0]) : Math.atan2(a[1]-b[1], a[0]-b[0]);
     nodeLabelAt(n, a[0], a[1], ang, isSrc);
   };
-  for (const n of G.sources) one(n, n.out[0], true);
-  for (const n of G.sinks) one(n, n.in[0], false);
+  for (const n of G.sources) if (!isBld(n)) one(n, n.out[0], true);
+  for (const n of G.sinks) if (!n.term) one(n, n.in[0], false);
 }
 
 /* ============ 起動 ============ */
@@ -1848,7 +2642,7 @@ renderMy(); renderPresetSel();
 (function init(){
   let cur = null;
   try { cur = JSON.parse(localStorage.getItem(LS_CUR) || 'null'); } catch {}
-  if (cur && cur.net && cur.key && !cur.key.startsWith('p:')){ S.net = cur.net; S.presetKey = cur.key; S.label = cur.label; }
+  if (cur && cur.net && cur.key && (!cur.key.startsWith('p:') || cur.key === 'p:city')){ S.net = cur.net; S.presetKey = cur.key; S.label = cur.label; }
   else {
     const p = PRESETS.find(p => cur && 'p:'+p.key === cur.key) || PRESETS[0];
     S.net = p.make(); S.presetKey = 'p:'+p.key; S.label = p.name;
